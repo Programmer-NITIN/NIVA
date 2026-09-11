@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { checkAffordability, sendChatMessage } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ interface Message {
 
 export default function AskNivaPage() {
   const [persona] = useState<PersonaId>("rajesh_sharma");
+  const [language, setLanguage] = useState<"en" | "hi">("en");
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "niva",
@@ -24,9 +25,42 @@ export default function AskNivaPage() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [affordability, setAffordability] = useState<any>(null);
   const [sliderAmount, setSliderAmount] = useState(65000);
   const [sliderDelay, setSliderDelay] = useState(0);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // Voice input via Web Speech API
+  function startListening() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input not supported in this browser. Try Chrome.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = language === "hi" ? "hi-IN" : "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+  }
 
   async function handleSend() {
     if (!input.trim() || loading) return;
@@ -37,7 +71,7 @@ export default function AskNivaPage() {
 
     try {
       // All messages go through the unified copilot endpoint
-      const result = await sendChatMessage(userMsg, persona);
+      const result = await sendChatMessage(userMsg, persona, language);
 
       // If the copilot returned affordability data, populate the slider
       if (result.data?.target_amount) {
@@ -237,24 +271,58 @@ export default function AskNivaPage() {
           </div>
 
           {/* Input */}
+          <div ref={chatEndRef} />
           <div style={{
             position: "sticky",
             bottom: 16,
             background: "var(--niva-canvas)",
             border: "1px solid var(--niva-border)",
             borderRadius: "var(--radius-pill)",
-            padding: "8px 8px 8px 20px",
+            padding: "8px 8px 8px 12px",
             display: "flex",
             alignItems: "center",
             gap: 8,
+            boxShadow: "0 -4px 24px rgba(0,0,0,0.06)",
           }}>
-            <span style={{ fontSize: 20 }}>🎙️</span>
+            {/* Language Toggle */}
+            <button
+              onClick={() => setLanguage(language === "en" ? "hi" : "en")}
+              className="chip chip-neutral"
+              style={{ cursor: "pointer", border: "1px solid var(--niva-border)", fontSize: 11, padding: "4px 10px" }}
+              title="Switch language"
+            >
+              {language === "en" ? "EN" : "हिन्दी"}
+            </button>
+
+            {/* Voice Button */}
+            <button
+              onClick={startListening}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                border: "none",
+                background: isListening ? "var(--niva-critical)" : "var(--niva-canvas-subtle)",
+                color: isListening ? "#fff" : "var(--niva-text-secondary)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                transition: "all 0.2s ease",
+                animation: isListening ? "pulse 1s infinite" : "none",
+              }}
+              title="Voice input"
+            >
+              {isListening ? "●" : "🎙️"}
+            </button>
+
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="What if I pay ₹30,000 down payment and the rest in 3 months?"
+              placeholder={language === "hi" ? "Kya main ₹65,000 ka laptop khareed sakta hoon?" : "What if I pay ₹30,000 down payment and the rest in 3 months?"}
               style={{
                 flex: 1,
                 border: "none",
@@ -265,7 +333,7 @@ export default function AskNivaPage() {
               }}
             />
             <button className="btn btn-primary" onClick={handleSend} disabled={loading}>
-              Calculate →
+              {language === "hi" ? "गणना करें →" : "Calculate →"}
             </button>
           </div>
         </div>

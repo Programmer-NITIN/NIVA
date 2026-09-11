@@ -474,6 +474,12 @@ body {
   color: var(--niva-info);
 }
 
+.chip-sm {
+  padding: 2px 8px;
+  font-size: 10px;
+  line-height: 14px;
+}
+
 .chip-neutral {
   background: var(--niva-canvas-subtle);
   color: var(--niva-text-secondary);

@@ -101,7 +101,7 @@ export default function HomePage() {
               />
               <span className="label-md">{stressInfo.label}</span>
             </div>
-            <div className="chip chip-neutral">EN | हिन्दी</div>
+            <div className="chip chip-neutral">EN | हिन्दी | ગુજ</div>
           </div>
         </div>
       </nav>

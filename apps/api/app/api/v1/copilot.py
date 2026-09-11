@@ -163,7 +163,9 @@ def _format_tool_result(tool_name: str, data: dict, language: str) -> str:
         buffer = data.get("post_purchase_emergency_months", 0)
         reasoning = data.get("reasoning", "")
 
-        if language == "hi":
+        if language == "gu":
+            return f"Tamaro current balance ₹{balance:,.0f} chhe. ₹{amt:,.0f} ni kharidi pachhi ₹{post:,.0f} bachshe ane {buffer} months no emergency buffer raheshe. {reasoning}"
+        elif language == "hi":
             return f"Aapka current balance ₹{balance:,.0f} hai. ₹{amt:,.0f} ki purchase ke baad ₹{post:,.0f} bachega aur {buffer} months ka emergency buffer rahega. {reasoning}"
         return reasoning
 
@@ -173,7 +175,9 @@ def _format_tool_result(tool_name: str, data: dict, language: str) -> str:
         cats = data.get("categories", [])
         top_cats = ", ".join([f"{c['category']} (₹{c['amount']:,.0f})" for c in cats[:3]])
 
-        if language == "hi":
+        if language == "gu":
+            return f"Aa mahine tame kul ₹{total:,.0f} kharch karya chhe, je baseline thi {trend:.0f}% {'vadhu' if trend > 0 else 'ochhu'} chhe. Top categories: {top_cats}."
+        elif language == "hi":
             return f"Is mahine aapne kul ₹{total:,.0f} kharch kiye hain, jo baseline se {trend:.0f}% {'zyada' if trend > 0 else 'kam'} hai. Top categories: {top_cats}."
         return f"This month you've spent ₹{total:,.0f} total, which is {abs(trend):.0f}% {'higher' if trend > 0 else 'lower'} than your baseline. Top categories: {top_cats}."
 
@@ -185,7 +189,9 @@ def _format_tool_result(tool_name: str, data: dict, language: str) -> str:
         factors = data.get("stress_factors", [])
         factor_text = "; ".join([f["description"] for f in factors[:2]])
 
-        if language == "hi":
+        if language == "gu":
+            return f"Tamaro financial health score {score}/100 chhe ane stress score {stress}/100 ({level}) chhe. Emergency buffer {buffer} months chhe. Key factors: {factor_text}"
+        elif language == "hi":
             return f"Aapka financial health score {score}/100 hai aur stress score {stress}/100 ({level}) hai. Emergency buffer {buffer} months hai. Key factors: {factor_text}"
         return f"Your financial health score is {score}/100 and stress score is {stress}/100 ({level}). Emergency buffer: {buffer} months. Key factors: {factor_text}"
 

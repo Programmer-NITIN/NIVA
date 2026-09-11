@@ -181,43 +181,47 @@ def _fallback_response(message: str, language: str) -> dict:
     """Rule-based fallback when Gemini is not available."""
     msg = message.lower()
 
-    if language == "hi" or any(w in msg for w in ["khareed", "kharcha", "kitna", "salary", "paise"]):
+    if language == "gu" or any(w in msg for w in ["kharidi", "ketla", "paisa", "kharch"]):
+        lang = "gu"
+    elif language == "hi" or any(w in msg for w in ["khareed", "kharcha", "kitna", "salary", "paise"]):
         lang = "hi"
     else:
         lang = "en"
 
-    if any(w in msg for w in ["afford", "buy", "purchase", "khareed", "laptop", "phone", "price"]):
+    if any(w in msg for w in ["afford", "buy", "purchase", "khareed", "kharidi", "laptop", "phone", "price"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "calculate_affordability", "args": _extract_amount(msg), "status": "pending"}],
             "language": lang,
         }
-    elif any(w in msg for w in ["spend", "kharcha", "expense", "spending", "category"]):
+    elif any(w in msg for w in ["spend", "kharcha", "kharch", "expense", "spending", "category"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "get_spending_breakdown", "args": {}, "status": "pending"}],
             "language": lang,
         }
-    elif any(w in msg for w in ["stress", "tension", "health", "score", "sehat"]):
+    elif any(w in msg for w in ["stress", "tension", "health", "score", "sehat", "tandurasti"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "get_financial_health", "args": {}, "status": "pending"}],
             "language": lang,
         }
-    elif any(w in msg for w in ["suppress", "gate", "why", "loan", "reject", "block"]):
+    elif any(w in msg for w in ["suppress", "gate", "why", "loan", "reject", "block", "kem"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "get_gate_verdict", "args": {"product_type": "personal_loan"}, "status": "pending"}],
             "language": lang,
         }
-    elif any(w in msg for w in ["signal", "change", "badal", "kya hua"]):
+    elif any(w in msg for w in ["signal", "change", "badal", "kya hua", "shu thayu"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "get_stress_signals", "args": {}, "status": "pending"}],
             "language": lang,
         }
     else:
-        if lang == "hi":
+        if lang == "gu":
+            reply = "Namaskar! Hu NIVA chhu, tamaro financial copilot. Tame mane puchhi shako chho: shu hu laptop kharidi shaku? Ke tamaro spending breakdown juo. Shu janvu chhe?"
+        elif lang == "hi":
             reply = "Namaste! Main NIVA hoon, aapka financial copilot. Aap mujhse pooch sakte hain: kya main laptop khareed sakta hoon? Ya phir apna spending breakdown dekhein. Kya jaanna chahte hain?"
         else:
             reply = "Hi! I'm NIVA, your financial copilot. I can help you check affordability, understand spending patterns, explain your financial health, or tell you why a product was suppressed. What would you like to know?"

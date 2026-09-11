@@ -46,7 +46,7 @@ export default function ConsentPage() {
             <li><a href="/bank">Bank Portal</a></li>
           </ul>
           <div className="navbar-right">
-            <div className="chip chip-neutral">EN | हिन्दी</div>
+            <div className="chip chip-neutral">EN | हिन्दी | ગુજ</div>
           </div>
         </div>
       </nav>

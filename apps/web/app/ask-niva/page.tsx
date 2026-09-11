@@ -15,7 +15,7 @@ interface Message {
 
 export default function AskNivaPage() {
   const [persona] = useState<PersonaId>("rajesh_sharma");
-  const [language, setLanguage] = useState<"en" | "hi">("en");
+  const [language, setLanguage] = useState<"en" | "hi" | "gu">("en");
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "niva",
@@ -45,7 +45,7 @@ export default function AskNivaPage() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = language === "hi" ? "hi-IN" : "en-IN";
+    recognition.lang = language === "hi" ? "hi-IN" : language === "gu" ? "gu-IN" : "en-IN";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
@@ -128,7 +128,7 @@ export default function AskNivaPage() {
             <li><a href="/bank">Bank Portal</a></li>
           </ul>
           <div className="navbar-right">
-            <div className="chip chip-neutral">EN | हिन्दी</div>
+            <div className="chip chip-neutral">EN | हिन्दी | ગુજ</div>
           </div>
         </div>
       </nav>
@@ -286,12 +286,12 @@ export default function AskNivaPage() {
           }}>
             {/* Language Toggle */}
             <button
-              onClick={() => setLanguage(language === "en" ? "hi" : "en")}
+              onClick={() => setLanguage(language === "en" ? "hi" : language === "hi" ? "gu" : "en")}
               className="chip chip-neutral"
               style={{ cursor: "pointer", border: "1px solid var(--niva-border)", fontSize: 11, padding: "4px 10px" }}
               title="Switch language"
             >
-              {language === "en" ? "EN" : "हिन्दी"}
+              {language === "en" ? "EN" : language === "hi" ? "हिन्दी" : "ગુજરાતી"}
             </button>
 
             {/* Voice Button */}
@@ -322,7 +322,7 @@ export default function AskNivaPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder={language === "hi" ? "Kya main ₹65,000 ka laptop khareed sakta hoon?" : "What if I pay ₹30,000 down payment and the rest in 3 months?"}
+              placeholder={language === "hi" ? "Kya main ₹65,000 ka laptop khareed sakta hoon?" : language === "gu" ? "શું હું ₹65,000 નો લેપટોપ ખરીદી શકું?" : "What if I pay ₹30,000 down payment and the rest in 3 months?"}
               style={{
                 flex: 1,
                 border: "none",
@@ -333,7 +333,7 @@ export default function AskNivaPage() {
               }}
             />
             <button className="btn btn-primary" onClick={handleSend} disabled={loading}>
-              {language === "hi" ? "गणना करें →" : "Calculate →"}
+              {language === "hi" ? "गणना करें →" : language === "gu" ? "ગણતરી →" : "Calculate →"}
             </button>
           </div>
         </div>

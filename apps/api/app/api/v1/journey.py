@@ -188,6 +188,9 @@ async def record_empathetic_action(req: EmpatheticActionRequest):
     }
 
 
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+ALLOWED_EXT = {".csv",".xlsx",".xls",".pdf"}
+
 @router.post("/upload-statement")
 async def upload_bank_statement(
     file: UploadFile = File(...),
@@ -201,8 +204,15 @@ async def upload_bank_statement(
     and compute live Financial Digital Twin + Responsible Gate telemetry.
     PDF statements may be password-protected (e.g., first 4 chars of name + DOB).
     """
+    # guardrails
+    if file.filename and not any(file.filename.lower().endswith(ext) for ext in ALLOWED_EXT):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXT)}")
     try:
         content = await file.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_UPLOAD_BYTES//(1024*1024)} MB.")
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded.")
         pdf_password = password if password else None
         fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv", password=pdf_password)
         

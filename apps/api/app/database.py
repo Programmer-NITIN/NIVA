@@ -1,5 +1,6 @@
 """
 NIVA Backend — Database engine and session management.
+Supports Postgres (asyncpg) and SQLite (aiosqlite) fallback for local dev without Docker.
 """
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -7,12 +8,23 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=False,
-    pool_size=5,
-    max_overflow=10,
-)
+def _effective_db_url() -> str:
+    url = settings.database_url
+    # If Postgres is not reachable at startup, fallback logic is handled by lifespan
+    return url
+
+_db_url = _effective_db_url()
+
+# Choose connect_args / pool config based on driver
+if _db_url.startswith("sqlite"):
+    engine = create_async_engine(_db_url, echo=False, future=True)
+else:
+    engine = create_async_engine(
+        _db_url,
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+    )
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -33,3 +45,18 @@ async def get_db() -> AsyncSession:
             raise
         finally:
             await session.close()
+
+
+async def init_db():
+    """Create tables if not exist. For hackathon reliability, uses create_all."""
+    try:
+        from app.models import __all__  # noqa
+    except Exception:
+        pass
+    # Import all models to register with Base
+    try:
+        import app.models  # noqa
+    except Exception:
+        pass
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)

@@ -277,66 +277,11 @@ class BankStatementParser:
             )
 
         if not running_txns:
-            # Generate fallback simulated realistic transactions if the file had no valid numeric rows
-            base_time = datetime.utcnow()
-            running_txns = [
-                FITransaction(
-                    id="TXN-UPL-00001",
-                    type="CREDIT",
-                    mode="NEFT",
-                    amount=42000.0,
-                    balance_after=42000.0,
-                    narration="SALARY CREDITED / MONTHLY EARNINGS",
-                    merchant_name="Employer",
-                    category="salary",
-                    transaction_date=base_time - timedelta(days=28),
-                ),
-                FITransaction(
-                    id="TXN-UPL-00002",
-                    type="DEBIT",
-                    mode="NACH",
-                    amount=12450.0,
-                    balance_after=29550.0,
-                    narration="ACH DEBIT / SBI HOME LOAN EMI",
-                    merchant_name="SBI Loans",
-                    category="emi",
-                    transaction_date=base_time - timedelta(days=22),
-                ),
-                FITransaction(
-                    id="TXN-UPL-00003",
-                    type="DEBIT",
-                    mode="UPI",
-                    amount=3850.0,
-                    balance_after=25700.0,
-                    narration="UPI/P2M/DMART GROCERIES/STATION RD",
-                    merchant_name="DMart",
-                    category="groceries",
-                    transaction_date=base_time - timedelta(days=15),
-                ),
-                FITransaction(
-                    id="TXN-UPL-00004",
-                    type="DEBIT",
-                    mode="UPI",
-                    amount=1200.0,
-                    balance_after=24500.0,
-                    narration="UPI/TORRENT POWER ELECTRICITY BILL",
-                    merchant_name="Torrent Power",
-                    category="utilities",
-                    transaction_date=base_time - timedelta(days=10),
-                ),
-                FITransaction(
-                    id="TXN-UPL-00005",
-                    type="CREDIT",
-                    mode="UPI",
-                    amount=8500.0,
-                    balance_after=33000.0,
-                    narration="UPI/P2P/STORE CUSTOMER SALES INFLOW",
-                    merchant_name="UPI Inflow",
-                    category="salary",
-                    transaction_date=base_time - timedelta(days=4),
-                ),
-            ]
-            current_balance = 33000.0
+            raise ValueError(
+                "No valid transaction rows detected. Please check that your file has headers like "
+                "Date, Narration/Description, Debit/Credit or Amount, and at least one numeric row. "
+                "Supported: SBI, HDFC, ICICI, BOB, Axis, PNB CSV/XLSX/PDF."
+            )
 
         # Sort chronologically
         running_txns.sort(key=lambda t: t.transaction_date)

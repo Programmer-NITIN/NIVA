@@ -8,6 +8,14 @@ import {
   getSpendingAnalysis,
   getMLAnomalies,
   getMLLifeStage,
+  getPots,
+  sweepPot,
+  releasePot,
+  ingestSms,
+  getSubscriptions,
+  getMLStressPrediction,
+  checkAffordability,
+  getBureauLag,
 } from "@/lib/api";
 import {
   ShieldIcon,
@@ -22,7 +30,7 @@ import {
 } from "@/components/icons";
 
 type Language = "en" | "hi" | "gu";
-type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot";
+type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "pots" | "afford" | "subs";
 
 interface CustomerSession {
   personaId: string;
@@ -134,6 +142,13 @@ export default function CustomerDashboardPage() {
   const [lifeStage, setLifeStage] = useState<any>(null);
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pots, setPots] = useState<any[]>([]);
+  const [subs, setSubs] = useState<any>(null);
+  const [shap, setShap] = useState<any>(null);
+  const [affordAmt, setAffordAmt] = useState(45000);
+  const [affordRes, setAffordRes] = useState<any>(null);
+  const [smsText, setSmsText] = useState("");
+  const [bureau, setBureau] = useState<any>(null);
 
   // Active navigation tab on dashboard
   const [activeTab, setActiveTab] = useState<ActiveTab>("twin");
@@ -172,20 +187,26 @@ export default function CustomerDashboardPage() {
   async function fetchDashboardData(personaId: string) {
     setLoading(true);
     try {
-      const [twinRes, recsRes, spendRes, stageRes, anomRes] = await Promise.all([
+      const [twinRes, recsRes, spendRes, stageRes, anomRes, potsRes, subsRes, shapRes, bureauRes] = await Promise.all([
         getFinancialTwin(personaId).catch(() => null),
         getRecommendations(personaId).catch(() => null),
         getSpendingAnalysis(personaId).catch(() => null),
         getMLLifeStage(personaId).catch(() => null),
         getMLAnomalies(personaId).catch(() => null),
+        getPots(personaId).catch(() => null),
+        getSubscriptions(personaId).catch(() => null),
+        getMLStressPrediction(personaId).catch(() => null),
+        getBureauLag(personaId).catch(() => null),
       ]);
       setTwin(twinRes);
       setRecommendations(recsRes);
       setSpendingData(spendRes);
       setLifeStage(stageRes);
-      if (anomRes?.flagged_transactions) {
-        setAnomalies(anomRes.flagged_transactions);
-      }
+      if (anomRes?.flagged_transactions) setAnomalies(anomRes.flagged_transactions);
+      if (potsRes?.pots) setPots(potsRes.pots);
+      if (subsRes) setSubs(subsRes);
+      if (shapRes?.ml_prediction) setShap(shapRes.ml_prediction);
+      if (bureauRes) setBureau(bureauRes);
     } catch (err) {
       console.error("Error loading customer dashboard:", err);
     } finally {
@@ -281,31 +302,14 @@ export default function CustomerDashboardPage() {
           </div>
 
           <ul className="navbar-tabs">
-            <li>
-              <button className={activeTab === "twin" ? "active" : ""} onClick={() => setActiveTab("twin")}>
-                {language === "hi" ? "डिजिटल ट्विन" : language === "gu" ? "ડિજિટલ ટ્વીન" : "Digital Twin"}
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "spending" ? "active" : ""} onClick={() => setActiveTab("spending")}>
-                {language === "hi" ? "खर्च ब्यौरा" : language === "gu" ? "ખર્ચ વિશ્લેષણ" : "Spending"}
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "whatif" ? "active" : ""} onClick={() => setActiveTab("whatif")}>
-                {language === "hi" ? "संकट सिमुलेटर" : language === "gu" ? "સંકટ સિમ્યુલેટર" : "What-If Simulator"}
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "schemes" ? "active" : ""} onClick={() => setActiveTab("schemes")}>
-                {language === "hi" ? "सुरक्षित योजनाएं" : language === "gu" ? "સુરક્ષિત યોજનાઓ" : "Safe Schemes"}
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "copilot" ? "active" : ""} onClick={() => setActiveTab("copilot")}>
-                {language === "hi" ? "NIVA साथी (Voice)" : language === "gu" ? "NIVA સાથી (Voice)" : "Ask NIVA"}
-              </button>
-            </li>
+            <li><button className={activeTab === "twin" ? "active" : ""} onClick={() => setActiveTab("twin")}>Twin</button></li>
+            <li><button className={activeTab === "pots" ? "active" : ""} onClick={() => setActiveTab("pots")}>Pots</button></li>
+            <li><button className={activeTab === "afford" ? "active" : ""} onClick={() => setActiveTab("afford")}>Affordability</button></li>
+            <li><button className={activeTab === "spending" ? "active" : ""} onClick={() => setActiveTab("spending")}>Spending</button></li>
+            <li><button className={activeTab === "subs" ? "active" : ""} onClick={() => setActiveTab("subs")}>Subscriptions</button></li>
+            <li><button className={activeTab === "whatif" ? "active" : ""} onClick={() => setActiveTab("whatif")}>What-If</button></li>
+            <li><button className={activeTab === "schemes" ? "active" : ""} onClick={() => setActiveTab("schemes")}>Schemes</button></li>
+            <li><button className={activeTab === "copilot" ? "active" : ""} onClick={() => setActiveTab("copilot")}>Ask NIVA</button></li>
           </ul>
 
           <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -868,6 +872,202 @@ export default function CustomerDashboardPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* POTS — Wise-style Envelopes */}
+          {activeTab === "pots" && (
+            <div className="stack-lg">
+              <div>
+                <span className="label-sm text-muted">INCOME FIREWALL • SMART ENVELOPES</span>
+                <h2 className="headline-sm" style={{marginTop:4}}>NIVA Pots — Never Borrow for Rent</h2>
+                <p className="body-sm text-muted" style={{marginTop:4, maxWidth:720}}>Good months auto-sweep into jars, bad months auto-release. The Gate doesn't just block predatory loans — it gives you money from your own Pots instead. Zero hallucination: all balances from ReBIT arithmetic.</p>
+              </div>
+
+              <div className="grid-3" style={{gap:16}}>
+                {pots.length ? pots.map((p:any)=>{
+                  const progress = Math.min(100, Math.round((p.balance / Math.max(p.target,1))*100));
+                  const isEmergency = p.name.toLowerCase().includes("emergency");
+                  return (
+                    <div key={p.id} className="card" style={{padding:0, overflow:"hidden", border: isEmergency ? "1.5px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)"}}>
+                      <div style={{height:6, background: isEmergency ? "var(--niva-electric-lime)" : "var(--niva-border)", width: `${progress}%`, transition:"width 400ms ease"}} />
+                      <div style={{padding:"18px 18px 16px", textAlign:"left"}}>
+                        <div className="flex-between" style={{marginBottom:6}}>
+                          <span className="chip" style={{fontSize:10, background: isEmergency?"var(--niva-deep-forest)":"var(--niva-canvas-subtle)", color: isEmergency?"var(--niva-electric-lime)":"var(--niva-text-secondary)", border: isEmergency?"none":"1px solid var(--niva-border)"}}>{isEmergency?"SAFETY JAR":"ENVELOPE"}</span>
+                          <span className="label-sm text-muted" style={{fontSize:10}}>{progress}% of target</span>
+                        </div>
+                        <div style={{display:"flex", alignItems:"center", gap:10, margin:"6px 0 2px"}}>
+                          <div style={{width:36,height:36, borderRadius:10, background: isEmergency?"var(--niva-positive-bg)":"var(--niva-canvas-subtle)", border:"1px solid var(--niva-border)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16}}>{isEmergency?"🛡️":p.name.includes("Rent")?"🏠":"🏪"}</div>
+                          <div>
+                            <div className="label-sm text-muted" style={{fontSize:10}}>{p.name.toUpperCase()}</div>
+                            <div style={{fontSize:26, fontWeight:800, letterSpacing:"-0.02em", lineHeight:1}}>₹{p.balance.toLocaleString("en-IN")}</div>
+                          </div>
+                        </div>
+                        <div className="body-sm text-muted" style={{marginTop:8, display:"flex", justifyContent:"space-between"}}>
+                          <span>Target ₹{p.target.toLocaleString("en-IN")}</span><span>Auto-sweep {p.auto_sweep_pct}%</span>
+                        </div>
+                        <div style={{height:6, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden", marginTop:8}}>
+                          <div style={{height:"100%", width:`${progress}%`, background: progress>=100?"var(--niva-positive)": isEmergency?"var(--niva-deep-forest)":"var(--niva-text-secondary)", borderRadius:999}} />
+                        </div>
+                        <div style={{marginTop:12, display:"flex", gap:8}}>
+                          <button className="btn btn-secondary btn-sm" style={{flex:1}} onClick={async()=>{await sweepPot(session.personaId,2000,p.name); setPots((await getPots(session.personaId)).pots);}}>+ ₹2,000 Sweep</button>
+                          <button className="btn btn-outline btn-sm" style={{flex:1}} onClick={async()=>{await releasePot(session.personaId,1500,p.name); setPots((await getPots(session.personaId)).pots);}}>↗ Release</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div className="card" style={{gridColumn:"1/-1", textAlign:"center", padding:24}}>Loading Pots…</div>
+                )}
+              </div>
+
+              <div className="card" style={{padding:16, background:"var(--niva-canvas-subtle)", border:"1px solid var(--niva-border)", display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"center"}}>
+                <div style={{fontSize:13, color:"var(--niva-text-secondary)"}}><strong style={{color:"var(--niva-obsidian)"}}>Why Pots win:</strong> Instead of a 36% payday loan, release ₹5k from Dukaan Stock → Rent Pot. No CIBIL hit, runway stays {twin?.liquidity?.emergency_months ?? 3.5} mo.</div>
+                <span className="chip chip-positive" style={{whiteSpace:"nowrap"}}>● Autopilot logic live</span>
+              </div>
+
+              {shap && (
+                <div className="card">
+                  <div className="flex-between" style={{marginBottom:10}}>
+                    <div>
+                      <span className="label-sm text-muted">XAI • SHAP TREEEXPLAINER</span>
+                      <h3 className="title-md" style={{marginTop:2}}>Why Your Risk Looks Like This</h3>
+                    </div>
+                    <span className="chip chip-neutral" style={{fontSize:11}}>RBI explainability ✓</span>
+                  </div>
+                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                    {[...(shap.top_risk_factors||[]), ...(shap.top_protective_factors||[])].slice(0,5).map((f:any,i:number)=>{
+                      const val = (f.shap_value ?? f.value ?? f.impact ?? 0);
+                      const risk = Number(val) >= 0;
+                      const width = Math.min(100, Math.abs(Number(val))*220);
+                      return (
+                        <div key={i} style={{display:"grid", gridTemplateColumns:"180px 1fr 70px", gap:12, alignItems:"center", padding:"10px 12px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
+                          <span style={{fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{(f.feature||f.name||`Factor ${i+1}`).toString().slice(0,30)}</span>
+                          <div style={{height:8, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden"}}>
+                            <div style={{height:"100%", width:`${width}%`, background: risk?"var(--niva-critical)":"var(--niva-positive)", marginLeft: risk?"0":"auto", borderRadius:999}} />
+                          </div>
+                          <span style={{fontSize:12, fontWeight:700, textAlign:"right", color: risk?"var(--niva-critical)":"var(--niva-positive)"}}>{risk?"+":""}{Number(val).toFixed(3)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="body-sm text-muted" style={{marginTop:8, fontSize:12}}>SHAP factors are deterministic contributions from XGBoost stress model — no LLM invention.</div>
+                </div>
+              )}
+
+              {bureau && (
+                <div className="card">
+                  <div className="flex-between" style={{marginBottom:8}}>
+                    <div>
+                      <span className="label-sm text-muted">38-DAY BLIND WINDOW</span>
+                      <h3 className="title-md" style={{marginTop:2}}>Bureau vs AA — What Banks Miss</h3>
+                    </div>
+                    <span className="chip chip-critical" style={{fontSize:11}}>● 3.4× delinquency hidden</span>
+                  </div>
+                  <p className="body-sm text-muted" style={{marginBottom:12}}>Bureau {bureau.bureau_score} is flat for {bureau.bureau_last_updated_days_ago} days while AA live health is {bureau.aa_live_health}. {bureau.insight}</p>
+                  <div style={{display:"flex", gap:6, alignItems:"end", height:90, padding:"8px 6px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
+                    {bureau.series.map((s:any,i:number)=>(
+                      <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
+                        <div style={{display:"flex", gap:3, alignItems:"end", height:62}}>
+                          <div title={`Bureau ${s.bureau}`} style={{width:10, height: `${(s.bureau/760)*36+6}px`, background:"var(--niva-border-strong)", borderRadius:4}} />
+                          <div title={`AA ${s.aa}`} style={{width:10, height: `${(s.aa/100)*60+4}px`, background: i===bureau.series.length-1?"var(--niva-critical)":"var(--niva-deep-forest)", borderRadius:4}} />
+                        </div>
+                        <div style={{fontSize:10, fontWeight:700, color:"var(--niva-text-muted)"}}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:12}}><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-border-strong)",borderRadius:3,display:"inline-block"}}/> Bureau flat</span><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-deep-forest)",borderRadius:3,display:"inline-block"}}/> AA live (ReBIT)</span></div>
+                </div>
+              )}
+
+              <div className="card" style={{border:"1px solid var(--niva-border)"}}>
+                <div className="flex-between" style={{marginBottom:8}}>
+                  <div>
+                    <span className="label-sm text-muted">SMS-TO-TWIN • BHARAT INBOX PARSER</span>
+                    <h3 className="title-md" style={{marginTop:2}}>Forward Any Bank SMS</h3>
+                  </div>
+                  <span className="chip chip-neutral" style={{fontSize:11}}>Supports all 6 banks</span>
+                </div>
+                <p className="body-sm text-muted" style={{marginBottom:10}}>No statement download needed. Paste 1-5 SMS lines — we extract amount + credit/debit and immediately recompute your Digital Twin.</p>
+                <textarea value={smsText} onChange={e=>setSmsText(e.target.value)} placeholder={"Rs 42,000 credited to A/c XX1234 on 12-Sep-26 UPI Ref 123...\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill"} style={{width:"100%",minHeight:110,padding:"12px 14px",borderRadius:10,border:"1px solid var(--niva-border)", fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace", fontSize:13, lineHeight:1.5, background:"var(--niva-canvas-subtle)"}}/>
+                <div style={{marginTop:10, display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button className="btn btn-primary" onClick={async()=>{try{const r=await ingestSms(session.personaId,smsText); setSmsText(""); const msg=`Parsed ${r.transactions_parsed} SMS txns — Twin refreshed. Health ${r.twin?.health_score ?? ""}/100`; (window as any).__nivaToast?.(msg); fetchDashboardData(session.personaId);}catch(e:any){alert(e.message)}}}>Ingest SMS → Recompute Twin</button>
+                  <button className="btn btn-outline" onClick={()=>setSmsText("Rs 42,000 credited to A/c XX1234 on 12-Sep-26\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill")}>Load Demo SMS</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "afford" && (
+            <div className="stack-lg">
+              <div>
+                <span className="label-sm text-muted">AFFORDABILITY AT SOURCE • QR / LINK CHECK</span>
+                <h2 className="headline-sm" style={{marginTop:4}}>Can You Afford It? — Ask Before You Tap UPI</h2>
+                <p className="body-sm text-muted" style={{marginTop:4}}>Paste any product price, EMI plan or QR amount. Deterministic arithmetic tells you buffer impact + safer price + EMI burden before you pay.</p>
+              </div>
+
+              <div className="card" style={{padding:18, border:"1.5px solid var(--niva-deep-forest)"}}>
+                <div className="label-sm text-muted" style={{marginBottom:8}}>ENTER AMOUNT YOU'RE ABOUT TO PAY</div>
+                <div style={{display:"flex", gap:12, alignItems:"center", flexWrap:"wrap"}}>
+                  <div style={{position:"relative", flex:1, minWidth:240}}>
+                    <span style={{position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontWeight:800, color:"var(--niva-text-muted)"}}>₹</span>
+                    <input type="number" value={affordAmt} onChange={e=>setAffordAmt(Number(e.target.value))} style={{width:"100%", padding:"14px 16px 14px 32px", borderRadius:12, border:"1.5px solid var(--niva-border)", fontSize:22, fontWeight:800, letterSpacing:"-0.02em", background:"var(--niva-canvas-subtle)"}}/>
+                  </div>
+                  <button className="btn btn-primary btn-lg" style={{minWidth:180}} onClick={async()=>{const r=await checkAffordability(session.personaId,affordAmt); setAffordRes(r);}}>Can I Afford? →</button>
+                </div>
+                <div style={{display:"flex", gap:8, marginTop:10, flexWrap:"wrap"}}>
+                  {[15000,30000,48000,75000].map(v=>(
+                    <button key={v} onClick={()=>setAffordAmt(v)} className="btn btn-outline btn-sm" style={{borderRadius:999, background: affordAmt===v?"var(--niva-deep-forest)":"transparent", color: affordAmt===v?"var(--niva-electric-lime)":undefined}}>₹{v.toLocaleString("en-IN")}</button>
+                  ))}
+                  <span className="body-sm text-muted" style={{marginLeft:4, alignSelf:"center"}}>Base: Balance ₹{(twin?.liquidity?.available_balance ?? session.balance).toLocaleString("en-IN")} • Essential ₹{(twin?.expenses?.essential ?? session.essentialExpenses).toLocaleString("en-IN")}/mo</span>
+                </div>
+
+                {affordRes && (
+                  <div style={{marginTop:16, padding:16, borderRadius:12, border:"1px solid var(--niva-border)", background: affordRes.affordable==="YES"?"#E6F9DC": affordRes.affordable==="CONDITIONALLY"?"#FEF3C7":"#FFF1F2"}}>
+                    <div style={{display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"center"}}>
+                      <div style={{fontWeight:800, fontSize:20, color: affordRes.affordable==="YES"?"var(--niva-positive)": affordRes.affordable==="CONDITIONALLY"?"#92400E":"var(--niva-critical)"}}>{affordRes.affordable==="YES"?"✓ YES — Go ahead": affordRes.affordable==="CONDITIONALLY"?"~ CONDITIONALLY — Tight buffer":"✗ NO — Hold, choose safer range"}</div>
+                      <span className="chip" style={{background: affordRes.affordable==="YES"?"var(--niva-positive)": affordRes.affordable==="CONDITIONALLY"?"var(--niva-warning)":"var(--niva-critical)", color:"#fff"}}>Buffer {affordRes.buffer_status}</span>
+                    </div>
+                    <div style={{marginTop:8, fontSize:13, lineHeight:1.5, color:"var(--niva-obsidian)"}}>{affordRes.reasoning}</div>
+                    <div className="grid-3" style={{marginTop:12, gap:10}}>
+                      <div style={{padding:10, background:"var(--niva-canvas)", borderRadius:8, border:"1px solid var(--niva-border)"}}><div className="label-sm text-muted" style={{fontSize:10}}>POST-PURCHASE BUFFER</div><div style={{fontWeight:800}}>{affordRes.post_purchase_emergency_months} mo <span className="text-muted" style={{fontWeight:600}}>(target {affordRes.target_emergency_months} mo)</span></div></div>
+                      <div style={{padding:10, background:"var(--niva-canvas)", borderRadius:8, border:"1px solid var(--niva-border)"}}><div className="label-sm text-muted" style={{fontSize:10}}>SAFER PRICE RANGE</div><div style={{fontWeight:800}}>{affordRes.safer_range_low?`₹${affordRes.safer_range_low.toLocaleString("en-IN")} – ₹${affordRes.safer_range_high.toLocaleString("en-IN")}`:"— within budget"}</div></div>
+                      <div style={{padding:10, background:"var(--niva-canvas)", borderRadius:8, border:"1px solid var(--niva-border)"}}><div className="label-sm text-muted" style={{fontSize:10}}>RECOMMENDED WAIT</div><div style={{fontWeight:800}}>{affordRes.recommended_delay_months||0} mo{affordRes.emi_burden_status?` • EMI ${affordRes.emi_burden_status}`:""}</div></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "subs" && (
+            <div className="stack-lg">
+              <div>
+                <span className="label-sm text-muted">AUTOPAY RADAR • MANDATE KILLER</span>
+                <h2 className="headline-sm" style={{marginTop:4}}>Subscription Killer — Reclaim Your Runway</h2>
+                <p className="body-sm text-muted" style={{marginTop:4}}>Auto-detected NACH/UPI mandates from your AA transactions. Pausing one adds days to your emergency buffer instantly.</p>
+              </div>
+              {subs ? (
+                <>
+                  <div className="card" style={{background:"linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)", border:"1px solid #F59E0B", display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"center", padding:"16px 18px"}}>
+                    <div>
+                      <div className="label-sm" style={{color:"#92400E"}}>TOTAL AUTO-DEBITS THIS MONTH</div>
+                      <div style={{fontSize:22, fontWeight:800, color:"#92400E"}}>₹{subs.total_autodebit.toLocaleString("en-IN")}/mo <span style={{fontWeight:600, fontSize:14, color:"var(--niva-text-muted)"}}>• {subs.runway_days_equivalent} days runway</span></div>
+                    </div>
+                    <div className="body-sm" style={{maxWidth:380, color:"var(--niva-text-secondary)"}}>{subs.insight}</div>
+                  </div>
+                  <div className="grid-3" style={{gap:12}}>
+                    {subs.mandates.map((m:any,i:number)=>(
+                      <div key={i} className="card" style={{padding:16}}>
+                        <div className="flex-between" style={{marginBottom:6}}><span className="label-sm text-muted" style={{fontSize:10}}>DUE {m.due_day} • AUTOPAY</span><span className={`chip ${m.status==="PAID"?"chip-positive":"chip-warning"}`} style={{fontSize:10}}>{m.status}</span></div>
+                        <div style={{fontWeight:700, fontSize:14}}>{m.label}</div>
+                        <div style={{fontWeight:800, fontSize:20, marginTop:2}}>₹{m.amount.toLocaleString("en-IN")}</div>
+                        <button className="btn btn-outline btn-sm" style={{marginTop:10, width:"100%"}} onClick={()=>alert("Demo: Mandate pause requested. In production, NACH revoke via bank.")}>Pause this mandate</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : <div className="card" style={{textAlign:"center", padding:24}}>Scanning mandates from transactions…</div>}
             </div>
           )}
 

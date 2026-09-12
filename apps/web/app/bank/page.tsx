@@ -9,6 +9,9 @@ import {
   getRebitTelemetry,
   executeBankAction,
   assignBankCounselor,
+  getPortfolio,
+  getBureauLag,
+  resetDemo,
 } from "@/lib/api";
 import { formatCurrency, getStressColor, getScoreColor } from "@/lib/utils";
 import {
@@ -21,10 +24,10 @@ import {
   SparklesIcon,
 } from "@/components/icons";
 
-type BankTab = "customer360" | "gateAudit" | "rebit" | "relief";
+type BankTab = "portfolio" | "customer360" | "gateAudit" | "rebit" | "relief";
 
 export default function BankPortal() {
-  const [activeTab, setActiveTab] = useState<BankTab>("customer360");
+  const [activeTab, setActiveTab] = useState<BankTab>("portfolio");
   const [customers, setCustomers] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -32,6 +35,8 @@ export default function BankPortal() {
   const [policies, setPolicies] = useState<any[]>([]);
   const [telemetry, setTelemetry] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [portfolio, setPortfolio] = useState<any>(null);
+  const [bureau, setBureau] = useState<any>(null);
 
   // Action status toast / notification
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -44,12 +49,14 @@ export default function BankPortal() {
   async function loadInitialData() {
     setLoading(true);
     try {
-      const [custData, policyData] = await Promise.all([
+      const [custData, policyData, portData] = await Promise.all([
         getBankCustomers().catch(() => ({ customers: [] })),
         getGatePolicies().catch(() => ({ active_policies: [] })),
+        getPortfolio().catch(() => null),
       ]);
       setCustomers(custData.customers || []);
       setPolicies(policyData.active_policies || []);
+      if (portData) setPortfolio(portData);
 
       if (custData.customers?.length > 0) {
         await selectCustomer(custData.customers[0]);
@@ -64,14 +71,16 @@ export default function BankPortal() {
   async function selectCustomer(customer: any) {
     setSelected(customer);
     try {
-      const [detailData, auditData, telemData] = await Promise.all([
+      const [detailData, auditData, telemData, bureauData] = await Promise.all([
         getBankCustomerDetail(customer.persona_id).catch(() => null),
         getAuditTrail(customer.persona_id).catch(() => ({ audit_trail: [] })),
         getRebitTelemetry(customer.persona_id).catch(() => null),
+        getBureauLag(customer.persona_id).catch(() => null),
       ]);
       setDetail(detailData);
       setAudit(auditData.audit_trail || []);
       setTelemetry(telemData);
+      setBureau(bureauData);
     } catch (e) {
       console.error("Error selecting customer:", e);
     }
@@ -168,35 +177,17 @@ export default function BankPortal() {
           </div>
 
           <ul className="navbar-tabs">
-            <li>
-              <button className={activeTab === "customer360" ? "active" : ""} onClick={() => setActiveTab("customer360")}>
-                Customer 360
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "gateAudit" ? "active" : ""} onClick={() => setActiveTab("gateAudit")}>
-                Responsible Gate Audit
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "rebit" ? "active" : ""} onClick={() => setActiveTab("rebit")}>
-                ReBIT 1.1 Ingestion
-              </button>
-            </li>
-            <li>
-              <button className={activeTab === "relief" ? "active" : ""} onClick={() => setActiveTab("relief")}>
-                Relief Action Console
-              </button>
-            </li>
+            <li><button className={activeTab === "portfolio" ? "active" : ""} onClick={() => setActiveTab("portfolio")}>Portfolio EWS</button></li>
+            <li><button className={activeTab === "customer360" ? "active" : ""} onClick={() => setActiveTab("customer360")}>Customer 360</button></li>
+            <li><button className={activeTab === "gateAudit" ? "active" : ""} onClick={() => setActiveTab("gateAudit")}>Gate Audit</button></li>
+            <li><button className={activeTab === "rebit" ? "active" : ""} onClick={() => setActiveTab("rebit")}>ReBIT 1.1</button></li>
+            <li><button className={activeTab === "relief" ? "active" : ""} onClick={() => setActiveTab("relief")}>Relief Console</button></li>
           </ul>
 
           <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="chip chip-positive" style={{ fontSize: 11 }}>
-              ✓ RBI Fair Lending Compliant
-            </span>
-            <span className="chip chip-neutral" style={{ fontSize: 12, fontWeight: 700 }}>
-              Aditya S. (Risk Officer)
-            </span>
+            <button className="btn btn-outline btn-sm" onClick={async()=>{await resetDemo(); alert("Demo reset — personas restored"); loadInitialData();}}>Judge Reset</button>
+            <span className="chip chip-positive" style={{ fontSize: 11 }}>✓ RBI Fair Lending Compliant</span>
+            <span className="chip chip-neutral" style={{ fontSize: 12, fontWeight: 700 }}>Aditya S. (Risk Officer)</span>
           </div>
         </div>
       </nav>
@@ -285,6 +276,50 @@ export default function BankPortal() {
                 })}
               </div>
             </div>
+
+            {activeTab === "portfolio" && (
+              <div className="stack-lg">
+                <div>
+                  <span className="label-sm text-muted">INSTITUTIONAL • PORTFOLIO EARLY WARNING SYSTEM</span>
+                  <h2 className="headline-sm" style={{marginTop:4}}>Portfolio EWS — Predatory Lending Blocked Today</h2>
+                  <p className="body-sm text-muted" style={{marginTop:4}}>Every HOLD saves a borrower from a 36% debt trap. Coverage across {portfolio?.customers?.length ?? 3} underwriting files • Updated live from Gate decisions.</p>
+                </div>
+                {portfolio ? (
+                  <>
+                    <div className="grid-4" style={{gap:16}}>
+                      <div className="card" style={{textAlign:"center", borderTop:"3px solid var(--niva-critical)"}}><div className="label-sm text-muted">BLOCKED TODAY</div><div style={{fontSize:32,fontWeight:800,color:"var(--niva-critical)"}}>{portfolio.kpis.blocked_today}</div><div className="body-sm text-muted" style={{fontSize:11}}>Predatory offers suppressed</div></div>
+                      <div className="card" style={{textAlign:"center", borderTop:"3px solid var(--niva-positive)"}}><div className="label-sm text-muted">INTEREST SAVED</div><div style={{fontSize:24,fontWeight:800,color:"var(--niva-positive)"}}>₹{portfolio.kpis.interest_saved.toLocaleString("en-IN")}</div><div className="body-sm text-muted" style={{fontSize:11}}>At 36% APR avoided</div></div>
+                      <div className="card" style={{textAlign:"center", borderTop:"3px solid var(--niva-deep-forest)"}}><div className="label-sm text-muted">NPA AVOIDED (EST.)</div><div style={{fontSize:24,fontWeight:800}}>₹{portfolio.kpis.npa_avoided.toLocaleString("en-IN")}</div><div className="body-sm text-muted" style={{fontSize:11}}>90-day delinquency modeled</div></div>
+                      <div className="card" style={{textAlign:"center"}}><div className="label-sm text-muted">FILES MONITORED</div><div style={{fontSize:32,fontWeight:800}}>{portfolio.customers.length}</div><div className="body-sm text-muted" style={{fontSize:11}}>Live ReBIT-linked accounts</div></div>
+                    </div>
+                    <div className="card" style={{padding:0, overflow:"hidden", border:"1px solid var(--niva-border)"}}>
+                      <div style={{padding:"14px 18px", borderBottom:"1px solid var(--niva-border)", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                        <span className="title-md">Customer Heatmap</span>
+                        <span className="chip chip-neutral" style={{fontSize:11}}>Gate HOLD = needs relief, not loan</span>
+                      </div>
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%", borderCollapse:"collapse", fontSize:13}}>
+                          <thead><tr style={{borderBottom:"2px solid var(--niva-border)", background:"var(--niva-canvas-subtle)"}}><th style={thStyle}>Customer</th><th style={thStyle}>Health</th><th style={thStyle}>Stress</th><th style={thStyle}>DTI</th><th style={thStyle}>Buffer</th><th style={thStyle}>Gate</th></tr></thead>
+                          <tbody>{portfolio.customers.map((r:any)=>{
+                            const blocked = r.gate==="HOLD";
+                            return <tr key={r.persona_id} style={{borderBottom:"1px solid var(--niva-border)", background: blocked?"#FFF1F2":"transparent"}}><td style={tdStyle}><strong>{r.name}</strong><div style={{fontSize:11, color:"var(--niva-text-muted)"}}>{r.persona_id}</div></td><td style={tdStyle}><span className={`chip ${r.health>=60?"chip-positive": r.health>=40?"chip-warning":"chip-critical"}`}>{r.health}</span></td><td style={tdStyle}>{r.stress}</td><td style={tdStyle}>{Math.round(r.dti*100)}%</td><td style={tdStyle}>{r.buffer} mo</td><td style={tdStyle}><span className={`chip ${blocked?"chip-critical":"chip-positive"}`}>{blocked?"HOLD — Relief":"CLEAR"}</span></td></tr>;
+                          })}</tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                ) : <div className="card" style={{textAlign:"center", padding:24}}>Loading portfolio from Gate & Twin…</div>}
+                {bureau && (
+                  <div className="card">
+                    <div className="flex-between" style={{marginBottom:8}}><div><span className="label-sm text-muted">38-DAY BLIND WINDOW</span><h3 className="title-md" style={{marginTop:2}}>Bureau Flat vs AA Live</h3></div><span className="chip chip-critical" style={{fontSize:11}}>● Hidden 3.4× delinquency</span></div>
+                    <p className="body-sm text-muted" style={{marginBottom:12}}>{bureau.insight}</p>
+                    <div style={{display:"flex", gap:6, alignItems:"end", height:90, padding:"8px 6px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
+                      {bureau.series.map((s:any,i:number)=><div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}><div style={{display:"flex", gap:3, alignItems:"end", height:62}}><div style={{width:10, height: `${(s.bureau/760)*36+6}px`, background:"var(--niva-border-strong)", borderRadius:4}} /><div style={{width:10, height: `${(s.aa/100)*60+4}px`, background: i===bureau.series.length-1?"var(--niva-critical)":"var(--niva-deep-forest)", borderRadius:4}} /></div><div style={{fontSize:10, fontWeight:700, color:"var(--niva-text-muted)"}}>{s.label}</div></div>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ═══════════════ VIEW 1: CUSTOMER 360 ═══════════════ */}
             {activeTab === "customer360" && selected && twin && (

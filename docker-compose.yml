@@ -1,6 +1,31 @@
-version: '3.9'
-
 services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: niva-api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://niva:niva_dev_2026@postgres:5432/niva
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: niva-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
   postgres:
     image: postgres:16-alpine
     container_name: niva-postgres

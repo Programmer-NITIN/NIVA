@@ -130,7 +130,7 @@ export async function getJourneyState(personaId: string) {
   return fetchAPI<any>(`/journey/state/${personaId}`);
 }
 
-export async function uploadBankStatement(file: File, personaId = "custom_user", fullName = "Kailash Verma", phone = "+91 98980 12345", password = "") {
+export async function uploadBankStatement(file: File, personaId = "custom_user", fullName = "", phone = "", password = "") {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("persona_id", personaId);

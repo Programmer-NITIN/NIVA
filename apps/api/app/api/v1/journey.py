@@ -192,8 +192,8 @@ async def record_empathetic_action(req: EmpatheticActionRequest):
 async def upload_bank_statement(
     file: UploadFile = File(...),
     persona_id: str = Form("custom_user"),
-    full_name: str = Form("Kailash Verma"),
-    phone: str = Form("+91 98980 12345"),
+    full_name: str = Form(""),
+    phone: str = Form(""),
     password: str = Form(""),
 ):
     """
@@ -206,19 +206,27 @@ async def upload_bank_statement(
         pdf_password = password if password else None
         fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv", password=pdf_password)
         
+        resolved_name = (full_name or "").strip()
+        if not resolved_name or resolved_name == "Kailash Verma":
+            # Extract customer name from filename or use clean default
+            clean_bank = file.filename.replace("_", " ").replace("-", " ").split(".")[0].title()
+            resolved_name = f"{clean_bank} Account Holder"
+
+        resolved_phone = phone if phone and phone.strip() else "+91 98765 00000"
+
         # Register custom KYC entry
         PERSONA_KYC[persona_id] = {
             "persona_id": persona_id,
-            "full_name": full_name,
-            "phone": phone,
+            "full_name": resolved_name,
+            "phone": resolved_phone,
             "masked_aadhaar": "XXXX-XXXX-9918",
             "pan": "BKPVR9918K",
             "dob": "1988-05-18",
-            "gender": "Male",
-            "address": "Opposite Agricultural Mandi, Rajkot, Gujarat - 360001",
+            "gender": "Verified",
+            "address": "Verified Banking Address, India",
             "kyc_source": f"Real Statement Verified ({file.filename})",
             "verification_timestamp": datetime.utcnow().isoformat() + "Z",
-            "occupation": "Micro-Business & Agri-Trader",
+            "occupation": "Account Holder",
             "bank_linked": f"{file.filename.split('.')[0].upper()} Account",
             "narrative": f"Uploaded real bank statement ({len(fi_data.transactions)} transactions analyzed). Live cashflow telemetry computed.",
             "empathetic_offer": {
@@ -230,7 +238,7 @@ async def upload_bank_statement(
         }
 
         # Register and compute twin
-        twin = twin_service.register_uploaded_statement(persona_id, fi_data, full_name)
+        twin = twin_service.register_uploaded_statement(persona_id, fi_data, resolved_name)
 
         return {
             "status": "success",

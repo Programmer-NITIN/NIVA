@@ -42,6 +42,15 @@ export async function resetDemo(){ return fetchAPI<any>("/demo/reset",{method:"P
 export async function getPots(personaId:string){ return fetchAPI<any>(`/pots/${personaId}`);}
 export async function sweepPot(personaId:string, amount:number, to_pot="Emergency"){ return fetchAPI<any>("/pots/sweep",{method:"POST",body:JSON.stringify({persona_id:personaId, amount, to_pot})});}
 export async function releasePot(personaId:string, amount:number, from_pot="Dukaan Stock"){ return fetchAPI<any>("/pots/release",{method:"POST",body:JSON.stringify({persona_id:personaId, amount, from_pot})});}
+export async function createPot(personaId:string, name:string, target:number, initial_balance=0, auto_sweep_pct=10, icon="🏺"){
+  return fetchAPI<any>("/pots/create", {method:"POST", body:JSON.stringify({persona_id:personaId, name, target, initial_balance, auto_sweep_pct, icon})});
+}
+export async function deletePot(personaId:string, potId:string){
+  return fetchAPI<any>(`/pots/${personaId}/${potId}`, {method:"DELETE"});
+}
+export async function runPotsAutopilot(personaId:string){
+  return fetchAPI<any>(`/pots/autopilot/${personaId}`, {method:"POST"});
+}
 export async function ingestSms(personaId:string, sms_text:string){ return fetchAPI<any>("/sms/ingest",{method:"POST",body:JSON.stringify({persona_id: personaId, sms_text})});}
 export async function getPortfolio(){ return fetchAPI<any>("/portfolio/overview");}
 export async function getBureauLag(personaId:string){ return fetchAPI<any>(`/portfolio/bureau-lag/${personaId}`);}

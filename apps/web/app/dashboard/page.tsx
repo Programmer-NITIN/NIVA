@@ -11,6 +11,9 @@ import {
   getPots,
   sweepPot,
   releasePot,
+  createPot,
+  deletePot,
+  runPotsAutopilot,
   ingestSms,
   getSubscriptions,
   getMLStressPrediction,
@@ -151,6 +154,17 @@ export default function CustomerDashboardPage() {
   const [smsText, setSmsText] = useState("");
   const [bureau, setBureau] = useState<any>(null);
 
+  // Personalized Pots State
+  const [showNewPotModal, setShowNewPotModal] = useState(false);
+  const [newPotName, setNewPotName] = useState("");
+  const [newPotTarget, setNewPotTarget] = useState(25000);
+  const [newPotInitial, setNewPotInitial] = useState(2000);
+  const [newPotSweepPct, setNewPotSweepPct] = useState(10);
+  const [newPotIcon, setNewPotIcon] = useState("🏺");
+  const [potActionMsg, setPotActionMsg] = useState<string | null>(null);
+  const [autopilotRunning, setAutopilotRunning] = useState(false);
+  const [potCreating, setPotCreating] = useState(false);
+
   // Active navigation tab on dashboard
   const [activeTab, setActiveTab] = useState<ActiveTab>("twin");
 
@@ -256,6 +270,68 @@ export default function CustomerDashboardPage() {
     if (typeof window !== "undefined") {
       localStorage.removeItem("niva_customer_session");
       window.location.href = "/";
+    }
+  }
+
+  async function handleCreateCustomPot() {
+    if (!newPotName.trim()) {
+      alert("Please enter a name for your personalized pot.");
+      return;
+    }
+    setPotCreating(true);
+    try {
+      const res = await createPot(
+        session.personaId,
+        newPotName.trim(),
+        Number(newPotTarget) || 25000,
+        Number(newPotInitial) || 0,
+        Number(newPotSweepPct) || 10,
+        newPotIcon || "🏺"
+      );
+      if (res.pots) {
+        setPots(res.pots);
+      }
+      setPotActionMsg(`🎉 Created personalized pot "${newPotName.trim()}"!`);
+      setShowNewPotModal(false);
+      setNewPotName("");
+      setNewPotTarget(25000);
+      setNewPotInitial(2000);
+      setNewPotSweepPct(10);
+      setTimeout(() => setPotActionMsg(null), 4000);
+    } catch (e: any) {
+      alert("Failed to create pot: " + (e.message || e));
+    } finally {
+      setPotCreating(false);
+    }
+  }
+
+  async function handleDeletePot(potId: string, potName: string) {
+    if (!confirm(`Are you sure you want to delete "${potName}"? Any remaining balance will be released to available funds.`)) return;
+    try {
+      const res = await deletePot(session.personaId, potId);
+      if (res.pots) {
+        setPots(res.pots);
+      }
+      setPotActionMsg(`Deleted pot "${potName}".`);
+      setTimeout(() => setPotActionMsg(null), 4000);
+    } catch (e: any) {
+      alert("Failed to delete pot: " + (e.message || e));
+    }
+  }
+
+  async function handleRunAutopilot() {
+    setAutopilotRunning(true);
+    try {
+      const res = await runPotsAutopilot(session.personaId);
+      if (res.pots) {
+        setPots(res.pots);
+      }
+      setPotActionMsg(res.action || "Autopilot balanced pots successfully!");
+      setTimeout(() => setPotActionMsg(null), 5000);
+    } catch (e: any) {
+      alert("Autopilot error: " + (e.message || e));
+    } finally {
+      setAutopilotRunning(false);
     }
   }
 
@@ -531,6 +607,77 @@ export default function CustomerDashboardPage() {
                   </button>
                 </div>
               </section>
+
+              {/* XAI & Bureau Intelligence */}
+              {shap && (
+                <div className="card">
+                  <div className="flex-between" style={{marginBottom:10}}>
+                    <div>
+                      <span className="label-sm text-muted">XAI • SHAP TREEEXPLAINER</span>
+                      <h3 className="title-md" style={{marginTop:2}}>Why Your Risk Looks Like This</h3>
+                    </div>
+                    <span className="chip chip-neutral" style={{fontSize:11}}>RBI explainability ✓</span>
+                  </div>
+                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                    {[...(shap.top_risk_factors||[]), ...(shap.top_protective_factors||[])].slice(0,5).map((f:any,i:number)=>{
+                      const val = (f.shap_value ?? f.value ?? f.impact ?? 0);
+                      const risk = Number(val) >= 0;
+                      const width = Math.min(100, Math.abs(Number(val))*220);
+                      return (
+                        <div key={i} style={{display:"grid", gridTemplateColumns:"180px 1fr 70px", gap:12, alignItems:"center", padding:"10px 12px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
+                          <span style={{fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{(f.feature||f.name||`Factor ${i+1}`).toString().slice(0,30)}</span>
+                          <div style={{height:8, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden"}}>
+                            <div style={{height:"100%", width:`${width}%`, background: risk?"var(--niva-critical)":"var(--niva-positive)", marginLeft: risk?"0":"auto", borderRadius:999}} />
+                          </div>
+                          <span style={{fontSize:12, fontWeight:700, textAlign:"right", color: risk?"var(--niva-critical)":"var(--niva-positive)"}}>{risk?"+":""}{Number(val).toFixed(3)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="body-sm text-muted" style={{marginTop:8, fontSize:12}}>SHAP factors are deterministic contributions from XGBoost stress model — no LLM invention.</div>
+                </div>
+              )}
+
+              {bureau && (
+                <div className="card">
+                  <div className="flex-between" style={{marginBottom:8}}>
+                    <div>
+                      <span className="label-sm text-muted">38-DAY BLIND WINDOW</span>
+                      <h3 className="title-md" style={{marginTop:2}}>Bureau vs AA — What Banks Miss</h3>
+                    </div>
+                    <span className="chip chip-critical" style={{fontSize:11}}>● 3.4× delinquency hidden</span>
+                  </div>
+                  <p className="body-sm text-muted" style={{marginBottom:12}}>Bureau {bureau.bureau_score} is flat for {bureau.bureau_last_updated_days_ago} days while AA live health is {bureau.aa_live_health}. {bureau.insight}</p>
+                  <div style={{display:"flex", gap:6, alignItems:"end", height:90, padding:"8px 6px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
+                    {bureau.series.map((s:any,i:number)=>(
+                      <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
+                        <div style={{display:"flex", gap:3, alignItems:"end", height:62}}>
+                          <div title={`Bureau ${s.bureau}`} style={{width:10, height: `${(s.bureau/760)*36+6}px`, background:"var(--niva-border-strong)", borderRadius:4}} />
+                          <div title={`AA ${s.aa}`} style={{width:10, height: `${(s.aa/100)*60+4}px`, background: i===bureau.series.length-1?"var(--niva-critical)":"var(--niva-deep-forest)", borderRadius:4}} />
+                        </div>
+                        <div style={{fontSize:10, fontWeight:700, color:"var(--niva-text-muted)"}}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:12}}><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-border-strong)",borderRadius:3,display:"inline-block"}}/> Bureau flat</span><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-deep-forest)",borderRadius:3,display:"inline-block"}}/> AA live (ReBIT)</span></div>
+                </div>
+              )}
+
+              <div className="card" style={{border:"1px solid var(--niva-border)"}}>
+                <div className="flex-between" style={{marginBottom:8}}>
+                  <div>
+                    <span className="label-sm text-muted">SMS-TO-TWIN • BHARAT INBOX PARSER</span>
+                    <h3 className="title-md" style={{marginTop:2}}>Forward Any Bank SMS</h3>
+                  </div>
+                  <span className="chip chip-neutral" style={{fontSize:11}}>Supports all 6 banks</span>
+                </div>
+                <p className="body-sm text-muted" style={{marginBottom:10}}>No statement download needed. Paste 1-5 SMS lines — we extract amount + credit/debit and immediately recompute your Digital Twin.</p>
+                <textarea value={smsText} onChange={e=>setSmsText(e.target.value)} placeholder={"Rs 42,000 credited to A/c XX1234 on 12-Sep-26 UPI Ref 123...\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill"} style={{width:"100%",minHeight:110,padding:"12px 14px",borderRadius:10,border:"1px solid var(--niva-border)", fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace", fontSize:13, lineHeight:1.5, background:"var(--niva-canvas-subtle)"}}/>
+                <div style={{marginTop:10, display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button className="btn btn-primary" onClick={async()=>{try{const r=await ingestSms(session.personaId,smsText); setSmsText(""); const msg=`Parsed ${r.transactions_parsed} SMS txns — Twin refreshed. Health ${r.twin?.health_score ?? ""}/100`; (window as any).__nivaToast?.(msg); fetchDashboardData(session.personaId);}catch(e:any){alert(e.message)}}}>Ingest SMS → Recompute Twin</button>
+                  <button className="btn btn-outline" onClick={()=>setSmsText("Rs 42,000 credited to A/c XX1234 on 12-Sep-26\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill")}>Load Demo SMS</button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -879,124 +1026,354 @@ export default function CustomerDashboardPage() {
             </div>
           )}
 
-          {/* POTS — Wise-style Envelopes */}
+          {/* POTS — Wise-style Smart Envelopes & Income Firewall */}
           {activeTab === "pots" && (
             <div className="stack-lg">
-              <div>
-                <span className="label-sm text-muted">INCOME FIREWALL • SMART ENVELOPES</span>
-                <h2 className="headline-sm" style={{marginTop:4}}>NIVA Pots — Never Borrow for Rent</h2>
-                <p className="body-sm text-muted" style={{marginTop:4, maxWidth:720}}>Good months auto-sweep into jars, bad months auto-release. The Gate doesn't just block predatory loans — it gives you money from your own Pots instead. Zero hallucination: all balances from ReBIT arithmetic.</p>
+              {/* Header & High-Level Metrics */}
+              <div className="flex-between" style={{ flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+                <div>
+                  <span className="label-sm text-muted">INCOME FIREWALL • SMART ENVELOPES</span>
+                  <h2 className="headline-sm" style={{ marginTop: 4 }}>NIVA Pots — Never Borrow for Rent</h2>
+                  <p className="body-sm text-muted" style={{ marginTop: 4, maxWidth: 680 }}>
+                    Auto-sweep surplus cash on good months, auto-release for rent and essentials on bad months. 
+                    The Gate protects you from predatory 36% APR loans by funding emergencies from your own smart envelopes.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => setShowNewPotModal(!showNewPotModal)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span>{showNewPotModal ? "✕ Close Form" : "+ Create Personalized Pot"}</span>
+                  </button>
+                  <button 
+                    className="btn btn-outline"
+                    onClick={handleRunAutopilot}
+                    disabled={autopilotRunning}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span>{autopilotRunning ? "Running Autopilot…" : "⚡ Run Autopilot Balance"}</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="grid-3" style={{gap:16}}>
-                {pots.length ? pots.map((p:any)=>{
-                  const progress = Math.min(100, Math.round((p.balance / Math.max(p.target,1))*100));
+              {/* Notification / Action Message Toast */}
+              {potActionMsg && (
+                <div style={{
+                  padding: "12px 18px",
+                  borderRadius: 10,
+                  background: "var(--niva-deep-forest)",
+                  color: "var(--niva-electric-lime)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  boxShadow: "0 4px 12px rgba(22,51,0,0.15)",
+                }}>
+                  <span>{potActionMsg}</span>
+                  <button onClick={() => setPotActionMsg(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: 16 }}>✕</button>
+                </div>
+              )}
+
+              {/* Overall Summary Bar */}
+              <div className="grid-3" style={{ gap: 16 }}>
+                <div className="card" style={{ textAlign: "center", padding: "16px 20px" }}>
+                  <div className="label-sm text-muted">TOTAL ENVELOPE SAVINGS</div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: "var(--niva-obsidian)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    ₹{pots.reduce((s: number, p: any) => s + (Number(p.balance) || 0), 0).toLocaleString("en-IN")}
+                  </div>
+                  <div className="body-sm text-muted" style={{ marginTop: 2, fontSize: 11 }}>Liquid & ready for auto-release</div>
+                </div>
+
+                <div className="card" style={{ textAlign: "center", padding: "16px 20px" }}>
+                  <div className="label-sm text-muted">TARGET BUFFER GOAL</div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    ₹{pots.reduce((s: number, p: any) => s + (Number(p.target) || 0), 0).toLocaleString("en-IN")}
+                  </div>
+                  <div className="body-sm text-muted" style={{ marginTop: 2, fontSize: 11 }}>Cumulative goal across {pots.length} envelopes</div>
+                </div>
+
+                <div className="card" style={{ textAlign: "center", padding: "16px 20px" }}>
+                  <div className="label-sm text-muted">OVERALL BUFFER FUNDED</div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: "var(--niva-positive)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    {pots.length ? Math.min(100, Math.round((pots.reduce((s: number, p: any) => s + (Number(p.balance) || 0), 0) / Math.max(1, pots.reduce((s: number, p: any) => s + (Number(p.target) || 0), 0))) * 100)) : 0}%
+                  </div>
+                  <div className="body-sm text-muted" style={{ marginTop: 2, fontSize: 11 }}>Guarded against seasonal shocks</div>
+                </div>
+              </div>
+
+              {/* ─── ADD PERSONALIZED POT FORM / CARD ─── */}
+              {showNewPotModal && (
+                <div className="card" style={{
+                  padding: "24px 28px",
+                  border: "2px solid var(--niva-deep-forest)",
+                  background: "var(--niva-canvas-subtle)",
+                  boxShadow: "0 10px 25px -5px rgba(0,0,0,0.08)",
+                }}>
+                  <div className="flex-between" style={{ marginBottom: 14 }}>
+                    <div>
+                      <span className="chip chip-positive" style={{ fontSize: 11 }}>+ NEW PERSONALIZED ENVELOPE</span>
+                      <h3 style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>Create Your Custom Savings Jar</h3>
+                    </div>
+                    <button 
+                      onClick={() => setShowNewPotModal(false)}
+                      style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--niva-text-muted)" }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Preset Goal Quick-Picks */}
+                  <div style={{ marginBottom: 18 }}>
+                    <div className="label-sm text-muted" style={{ marginBottom: 8 }}>QUICK PRESETS (CLICK TO AUTO-FILL)</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {[
+                        { label: "🎓 Child School Fees", target: 40000, initial: 3000, sweep: 15, icon: "🎓" },
+                        { label: "🏍️ Two-Wheeler / Bike", target: 25000, initial: 2000, sweep: 10, icon: "🏍️" },
+                        { label: "💊 Medical Emergency", target: 30000, initial: 4000, sweep: 12, icon: "💊" },
+                        { label: "💍 Gold & Family Savings", target: 50000, initial: 5000, sweep: 10, icon: "💍" },
+                        { label: "🌾 Kirana / Inventory Stock", target: 20000, initial: 2500, sweep: 8, icon: "🌾" },
+                        { label: "🎉 Festival & Diwali Buffer", target: 15000, initial: 1500, sweep: 5, icon: "🎉" },
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          style={{ fontSize: 12, background: "var(--niva-canvas)", borderRadius: 20, padding: "6px 14px" }}
+                          onClick={() => {
+                            setNewPotName(preset.label.slice(2).trim());
+                            setNewPotTarget(preset.target);
+                            setNewPotInitial(preset.initial);
+                            setNewPotSweepPct(preset.sweep);
+                            setNewPotIcon(preset.icon);
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Input Fields */}
+                  <div className="grid-2" style={{ gap: 16 }}>
+                    <div>
+                      <label className="label-sm text-muted" style={{ display: "block", marginBottom: 6 }}>POT / ENVELOPE NAME *</label>
+                      <input 
+                        type="text" 
+                        value={newPotName} 
+                        onChange={e => setNewPotName(e.target.value)}
+                        placeholder="e.g., Child School Fees, Bike EMI, Diwali Stock"
+                        style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--niva-border)", fontSize: 14, background: "var(--niva-canvas)" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="label-sm text-muted" style={{ display: "block", marginBottom: 6 }}>TARGET BUFFER AMOUNT (₹) *</label>
+                      <input 
+                        type="number" 
+                        value={newPotTarget} 
+                        onChange={e => setNewPotTarget(Number(e.target.value))}
+                        placeholder="e.g., 30000"
+                        style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--niva-border)", fontSize: 14, background: "var(--niva-canvas)" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="label-sm text-muted" style={{ display: "block", marginBottom: 6 }}>INITIAL SEED DEPOSIT (₹)</label>
+                      <input 
+                        type="number" 
+                        value={newPotInitial} 
+                        onChange={e => setNewPotInitial(Number(e.target.value))}
+                        placeholder="e.g., 2000"
+                        style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--niva-border)", fontSize: 14, background: "var(--niva-canvas)" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="label-sm text-muted" style={{ display: "block", marginBottom: 6 }}>
+                        AUTO-SWEEP % ON SURPLUS MONTHS ({newPotSweepPct}%)
+                      </label>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="30" 
+                        step="1"
+                        value={newPotSweepPct} 
+                        onChange={e => setNewPotSweepPct(Number(e.target.value))}
+                        style={{ width: "100%", marginTop: 10 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Icon Selector */}
+                  <div style={{ marginTop: 16 }}>
+                    <label className="label-sm text-muted" style={{ display: "block", marginBottom: 6 }}>CHOOSE POT ICON</label>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {["🛡️", "🏠", "🏪", "🎓", "💊", "🏍️", "💍", "🌾", "🎉", "🏺", "📱", "🚗"].map((ic) => (
+                        <button
+                          key={ic}
+                          type="button"
+                          onClick={() => setNewPotIcon(ic)}
+                          style={{
+                            width: 40, height: 40, borderRadius: 10, fontSize: 18,
+                            border: newPotIcon === ic ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                            background: newPotIcon === ic ? "var(--niva-electric-lime)" : "var(--niva-canvas)",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {ic}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div style={{ marginTop: 22, display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                    <button 
+                      className="btn btn-outline" 
+                      onClick={() => setShowNewPotModal(false)}
+                      disabled={potCreating}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={handleCreateCustomPot}
+                      disabled={potCreating || !newPotName.trim()}
+                    >
+                      {potCreating ? "Creating Pot…" : "Create Pot & Enable Sweep →"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Pots Grid */}
+              <div className="grid-3" style={{ gap: 16 }}>
+                {pots.length ? pots.map((p: any) => {
+                  const progress = Math.min(100, Math.round(((p.balance || 0) / Math.max(p.target || 1, 1)) * 100));
                   const isEmergency = p.name.toLowerCase().includes("emergency");
+                  const icon = p.icon || (isEmergency ? "🛡️" : p.name.toLowerCase().includes("rent") ? "🏠" : p.name.toLowerCase().includes("stock") ? "🏪" : "🏺");
+
                   return (
-                    <div key={p.id} className="card" style={{padding:0, overflow:"hidden", border: isEmergency ? "1.5px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)"}}>
-                      <div style={{height:6, background: isEmergency ? "var(--niva-electric-lime)" : "var(--niva-border)", width: `${progress}%`, transition:"width 400ms ease"}} />
-                      <div style={{padding:"18px 18px 16px", textAlign:"left"}}>
-                        <div className="flex-between" style={{marginBottom:6}}>
-                          <span className="chip" style={{fontSize:10, background: isEmergency?"var(--niva-deep-forest)":"var(--niva-canvas-subtle)", color: isEmergency?"var(--niva-electric-lime)":"var(--niva-text-secondary)", border: isEmergency?"none":"1px solid var(--niva-border)"}}>{isEmergency?"SAFETY JAR":"ENVELOPE"}</span>
-                          <span className="label-sm text-muted" style={{fontSize:10}}>{progress}% of target</span>
-                        </div>
-                        <div style={{display:"flex", alignItems:"center", gap:10, margin:"6px 0 2px"}}>
-                          <div style={{width:36,height:36, borderRadius:10, background: isEmergency?"var(--niva-positive-bg)":"var(--niva-canvas-subtle)", border:"1px solid var(--niva-border)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16}}>{isEmergency?"🛡️":p.name.includes("Rent")?"🏠":"🏪"}</div>
-                          <div>
-                            <div className="label-sm text-muted" style={{fontSize:10}}>{p.name.toUpperCase()}</div>
-                            <div style={{fontSize:26, fontWeight:800, letterSpacing:"-0.02em", lineHeight:1}}>₹{p.balance.toLocaleString("en-IN")}</div>
+                    <div key={p.id} className="card" style={{ padding: 0, overflow: "hidden", border: isEmergency ? "1.5px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)", display: "flex", flexDirection: "column" }}>
+                      <div style={{ height: 6, background: isEmergency ? "var(--niva-electric-lime)" : progress >= 80 ? "var(--niva-positive)" : "var(--niva-border-strong)", width: `${progress}%`, transition: "width 400ms ease" }} />
+                      
+                      <div style={{ padding: "18px 18px 16px", textAlign: "left", flex: 1, display: "flex", flexDirection: "column" }}>
+                        <div className="flex-between" style={{ marginBottom: 6 }}>
+                          <span className="chip" style={{ fontSize: 10, background: isEmergency ? "var(--niva-deep-forest)" : p.is_custom ? "rgba(142,242,68,0.15)" : "var(--niva-canvas-subtle)", color: isEmergency ? "var(--niva-electric-lime)" : p.is_custom ? "var(--niva-deep-forest)" : "var(--niva-text-secondary)", border: isEmergency ? "none" : "1px solid var(--niva-border)", fontWeight: 700 }}>
+                            {isEmergency ? "SAFETY JAR" : p.is_custom ? "PERSONALIZED POT" : "ENVELOPE"}
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className="label-sm text-muted" style={{ fontSize: 11, fontWeight: 700 }}>{progress}% of goal</span>
+                            {p.is_custom && (
+                              <button 
+                                onClick={() => handleDeletePot(p.id, p.name)}
+                                title="Delete Pot"
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--niva-text-muted)", fontSize: 14, padding: "0 2px" }}
+                              >
+                                ✕
+                              </button>
+                            )}
                           </div>
                         </div>
-                        <div className="body-sm text-muted" style={{marginTop:8, display:"flex", justifyContent:"space-between"}}>
-                          <span>Target ₹{p.target.toLocaleString("en-IN")}</span><span>Auto-sweep {p.auto_sweep_pct}%</span>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "8px 0 4px" }}>
+                          <div style={{ width: 42, height: 42, borderRadius: 12, background: isEmergency ? "var(--niva-positive-bg)" : "var(--niva-canvas-subtle)", border: "1px solid var(--niva-border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+                            {icon}
+                          </div>
+                          <div>
+                            <div className="label-sm text-muted" style={{ fontSize: 11, fontWeight: 700 }}>{p.name.toUpperCase()}</div>
+                            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+                              ₹{Number(p.balance || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{height:6, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden", marginTop:8}}>
-                          <div style={{height:"100%", width:`${progress}%`, background: progress>=100?"var(--niva-positive)": isEmergency?"var(--niva-deep-forest)":"var(--niva-text-secondary)", borderRadius:999}} />
+
+                        <div className="body-sm text-muted" style={{ marginTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                          <span>Target: <strong>₹{Number(p.target || 0).toLocaleString("en-IN")}</strong></span>
+                          <span>Auto-sweep: <strong>{p.auto_sweep_pct || 0}%</strong></span>
                         </div>
-                        <div style={{marginTop:12, display:"flex", gap:8}}>
-                          <button className="btn btn-secondary btn-sm" style={{flex:1}} onClick={async()=>{await sweepPot(session.personaId,2000,p.name); setPots((await getPots(session.personaId)).pots);}}>+ ₹2,000 Sweep</button>
-                          <button className="btn btn-outline btn-sm" style={{flex:1}} onClick={async()=>{await releasePot(session.personaId,1500,p.name); setPots((await getPots(session.personaId)).pots);}}>↗ Release</button>
+
+                        <div style={{ height: 6, background: "var(--niva-canvas-dim)", borderRadius: 999, overflow: "hidden", marginTop: 8 }}>
+                          <div style={{ height: "100%", width: `${progress}%`, background: progress >= 100 ? "var(--niva-positive)" : isEmergency ? "var(--niva-deep-forest)" : "var(--niva-text-secondary)", borderRadius: 999 }} />
+                        </div>
+
+                        {/* Interactive Buttons */}
+                        <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button 
+                              className="btn btn-secondary btn-sm" 
+                              style={{ flex: 1, fontSize: 11 }}
+                              onClick={async () => {
+                                await sweepPot(session.personaId, 1000, p.name);
+                                const up = await getPots(session.personaId);
+                                setPots(up.pots);
+                                setPotActionMsg(`Swept +₹1,000 into ${p.name}`);
+                                setTimeout(() => setPotActionMsg(null), 3000);
+                              }}
+                            >
+                              + ₹1k Sweep
+                            </button>
+                            <button 
+                              className="btn btn-secondary btn-sm" 
+                              style={{ flex: 1, fontSize: 11 }}
+                              onClick={async () => {
+                                await sweepPot(session.personaId, 2000, p.name);
+                                const up = await getPots(session.personaId);
+                                setPots(up.pots);
+                                setPotActionMsg(`Swept +₹2,000 into ${p.name}`);
+                                setTimeout(() => setPotActionMsg(null), 3000);
+                              }}
+                            >
+                              + ₹2k Sweep
+                            </button>
+                          </div>
+                          <button 
+                            className="btn btn-outline btn-sm" 
+                            style={{ width: "100%", fontSize: 11 }}
+                            disabled={p.balance <= 0}
+                            onClick={async () => {
+                              if (p.balance <= 0) return;
+                              const amt = Math.min(1500, p.balance);
+                              await releasePot(session.personaId, amt, p.name);
+                              const up = await getPots(session.personaId);
+                              setPots(up.pots);
+                              setPotActionMsg(`Released ₹${amt.toLocaleString("en-IN")} from ${p.name} to available funds.`);
+                              setTimeout(() => setPotActionMsg(null), 3000);
+                            }}
+                          >
+                            ↗ Release ₹1,500 Buffer
+                          </button>
                         </div>
                       </div>
                     </div>
                   );
                 }) : (
-                  <div className="card" style={{gridColumn:"1/-1", textAlign:"center", padding:24}}>Loading Pots…</div>
+                  <div className="card" style={{ gridColumn: "1/-1", textAlign: "center", padding: 32 }}>
+                    Loading Smart Pots…
+                  </div>
                 )}
               </div>
 
-              <div className="card" style={{padding:16, background:"var(--niva-canvas-subtle)", border:"1px solid var(--niva-border)", display:"flex", justifyContent:"space-between", gap:12, flexWrap:"wrap", alignItems:"center"}}>
-                <div style={{fontSize:13, color:"var(--niva-text-secondary)"}}><strong style={{color:"var(--niva-obsidian)"}}>Why Pots win:</strong> Instead of a 36% payday loan, release ₹5k from Dukaan Stock → Rent Pot. No CIBIL hit, runway stays {twin?.liquidity?.emergency_months ?? 3.5} mo.</div>
-                <span className="chip chip-positive" style={{whiteSpace:"nowrap"}}>● Autopilot logic live</span>
-              </div>
-
-              {shap && (
-                <div className="card">
-                  <div className="flex-between" style={{marginBottom:10}}>
-                    <div>
-                      <span className="label-sm text-muted">XAI • SHAP TREEEXPLAINER</span>
-                      <h3 className="title-md" style={{marginTop:2}}>Why Your Risk Looks Like This</h3>
-                    </div>
-                    <span className="chip chip-neutral" style={{fontSize:11}}>RBI explainability ✓</span>
-                  </div>
-                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
-                    {[...(shap.top_risk_factors||[]), ...(shap.top_protective_factors||[])].slice(0,5).map((f:any,i:number)=>{
-                      const val = (f.shap_value ?? f.value ?? f.impact ?? 0);
-                      const risk = Number(val) >= 0;
-                      const width = Math.min(100, Math.abs(Number(val))*220);
-                      return (
-                        <div key={i} style={{display:"grid", gridTemplateColumns:"180px 1fr 70px", gap:12, alignItems:"center", padding:"10px 12px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
-                          <span style={{fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{(f.feature||f.name||`Factor ${i+1}`).toString().slice(0,30)}</span>
-                          <div style={{height:8, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden"}}>
-                            <div style={{height:"100%", width:`${width}%`, background: risk?"var(--niva-critical)":"var(--niva-positive)", marginLeft: risk?"0":"auto", borderRadius:999}} />
-                          </div>
-                          <span style={{fontSize:12, fontWeight:700, textAlign:"right", color: risk?"var(--niva-critical)":"var(--niva-positive)"}}>{risk?"+":""}{Number(val).toFixed(3)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="body-sm text-muted" style={{marginTop:8, fontSize:12}}>SHAP factors are deterministic contributions from XGBoost stress model — no LLM invention.</div>
+              {/* Autopilot Explanation Card */}
+              <div className="card" style={{ padding: "18px 20px", background: "var(--niva-canvas-subtle)", border: "1px solid var(--niva-border)", display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: 13, color: "var(--niva-text-secondary)", maxWidth: 680 }}>
+                  <strong style={{ color: "var(--niva-obsidian)" }}>🛡️ Why Pots Protect You from Debt:</strong>{" "}
+                  Instead of taking a 36% APR payday loan or drawing down credit cards for unexpected shocks, NIVA automatically sweeps surplus in peak inflow weeks and releases money to cover your rent and essentials. Zero credit inquiry, zero penalty, and your emergency buffer remains intact.
                 </div>
-              )}
-
-              {bureau && (
-                <div className="card">
-                  <div className="flex-between" style={{marginBottom:8}}>
-                    <div>
-                      <span className="label-sm text-muted">38-DAY BLIND WINDOW</span>
-                      <h3 className="title-md" style={{marginTop:2}}>Bureau vs AA — What Banks Miss</h3>
-                    </div>
-                    <span className="chip chip-critical" style={{fontSize:11}}>● 3.4× delinquency hidden</span>
-                  </div>
-                  <p className="body-sm text-muted" style={{marginBottom:12}}>Bureau {bureau.bureau_score} is flat for {bureau.bureau_last_updated_days_ago} days while AA live health is {bureau.aa_live_health}. {bureau.insight}</p>
-                  <div style={{display:"flex", gap:6, alignItems:"end", height:90, padding:"8px 6px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
-                    {bureau.series.map((s:any,i:number)=>(
-                      <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
-                        <div style={{display:"flex", gap:3, alignItems:"end", height:62}}>
-                          <div title={`Bureau ${s.bureau}`} style={{width:10, height: `${(s.bureau/760)*36+6}px`, background:"var(--niva-border-strong)", borderRadius:4}} />
-                          <div title={`AA ${s.aa}`} style={{width:10, height: `${(s.aa/100)*60+4}px`, background: i===bureau.series.length-1?"var(--niva-critical)":"var(--niva-deep-forest)", borderRadius:4}} />
-                        </div>
-                        <div style={{fontSize:10, fontWeight:700, color:"var(--niva-text-muted)"}}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:12}}><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-border-strong)",borderRadius:3,display:"inline-block"}}/> Bureau flat</span><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-deep-forest)",borderRadius:3,display:"inline-block"}}/> AA live (ReBIT)</span></div>
-                </div>
-              )}
-
-              <div className="card" style={{border:"1px solid var(--niva-border)"}}>
-                <div className="flex-between" style={{marginBottom:8}}>
-                  <div>
-                    <span className="label-sm text-muted">SMS-TO-TWIN • BHARAT INBOX PARSER</span>
-                    <h3 className="title-md" style={{marginTop:2}}>Forward Any Bank SMS</h3>
-                  </div>
-                  <span className="chip chip-neutral" style={{fontSize:11}}>Supports all 6 banks</span>
-                </div>
-                <p className="body-sm text-muted" style={{marginBottom:10}}>No statement download needed. Paste 1-5 SMS lines — we extract amount + credit/debit and immediately recompute your Digital Twin.</p>
-                <textarea value={smsText} onChange={e=>setSmsText(e.target.value)} placeholder={"Rs 42,000 credited to A/c XX1234 on 12-Sep-26 UPI Ref 123...\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill"} style={{width:"100%",minHeight:110,padding:"12px 14px",borderRadius:10,border:"1px solid var(--niva-border)", fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace", fontSize:13, lineHeight:1.5, background:"var(--niva-canvas-subtle)"}}/>
-                <div style={{marginTop:10, display:"flex", gap:8, flexWrap:"wrap"}}>
-                  <button className="btn btn-primary" onClick={async()=>{try{const r=await ingestSms(session.personaId,smsText); setSmsText(""); const msg=`Parsed ${r.transactions_parsed} SMS txns — Twin refreshed. Health ${r.twin?.health_score ?? ""}/100`; (window as any).__nivaToast?.(msg); fetchDashboardData(session.personaId);}catch(e:any){alert(e.message)}}}>Ingest SMS → Recompute Twin</button>
-                  <button className="btn btn-outline" onClick={()=>setSmsText("Rs 42,000 credited to A/c XX1234 on 12-Sep-26\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill")}>Load Demo SMS</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button 
+                    className="btn btn-outline btn-sm"
+                    onClick={handleRunAutopilot}
+                    disabled={autopilotRunning}
+                  >
+                    {autopilotRunning ? "Balancing…" : "⚡ Test Autopilot Sweep"}
+                  </button>
+                  <span className="chip chip-positive" style={{ whiteSpace: "nowrap" }}>
+                    ● Autopilot Active
+                  </span>
                 </div>
               </div>
             </div>

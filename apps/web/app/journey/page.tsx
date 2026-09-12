@@ -185,8 +185,11 @@ export default function JourneyPage() {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await uploadBankStatement(file, "custom_user", kyc?.full_name || "Kailash Verma", PERSONAS[persona].phone);
+      const res = await uploadBankStatement(file, "custom_user", "", PERSONAS[persona].phone);
       setUploadedSummary(res);
+      if (res.kyc) {
+        setKyc(res.kyc);
+      }
       setDataFetched(true);
       const fullData = await getJourneyState("custom_user");
       setJourneyData(fullData);

@@ -5,7 +5,7 @@ All v1 routes are registered here.
 
 from fastapi import APIRouter
 
-from app.api.v1 import aa, twin, recommend, copilot, bank, demo, journey, ml, auth, pots, sms, portfolio, subs
+from app.api.v1 import aa, twin, recommend, copilot, bank, demo, journey, ml, auth, pots, sms, portfolio, subs, checkout, family
 
 api_router = APIRouter()
 
@@ -22,3 +22,5 @@ api_router.include_router(pots.router, prefix="/pots", tags=["Pots"])
 api_router.include_router(sms.router, prefix="/sms", tags=["SMS Ingest"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["Portfolio"])
 api_router.include_router(subs.router, prefix="/subscriptions", tags=["Subscriptions"])
+api_router.include_router(checkout.router, prefix="/checkout", tags=["Checkout Copilot"])
+api_router.include_router(family.router, prefix="/family", tags=["Family Twin"])

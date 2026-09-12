@@ -195,7 +195,7 @@ ALLOWED_EXT = {".csv",".xlsx",".xls",".pdf"}
 async def upload_bank_statement(
     file: UploadFile = File(...),
     persona_id: str = Form("custom_user"),
-    full_name: str = Form("Kailash Verma"),
+    full_name: str = Form(""),
     phone: str = Form("+91 98980 12345"),
     password: str = Form(""),
 ):
@@ -205,6 +205,11 @@ async def upload_bank_statement(
     PDF statements may be password-protected (e.g., first 4 chars of name + DOB).
     """
     # guardrails
+    persona_id = str(persona_id.default if hasattr(persona_id, "default") else persona_id)
+    full_name = str(full_name.default if hasattr(full_name, "default") else full_name)
+    phone = str(phone.default if hasattr(phone, "default") else phone)
+    password = str(password.default if hasattr(password, "default") else password)
+
     if file.filename and not any(file.filename.lower().endswith(ext) for ext in ALLOWED_EXT):
         raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXT)}")
     try:
@@ -216,20 +221,30 @@ async def upload_bank_statement(
         pdf_password = password if password else None
         fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv", password=pdf_password)
         
-        # Register custom KYC entry
+        meta = getattr(fi_data, "metadata", {}) or {}
+        extracted_name = meta.get("customer_name") or (full_name if full_name and full_name != "Verified Customer" else "Verified Customer")
+        extracted_bank = meta.get("bank_name") or (file.filename.split('.')[0].replace('_', ' ').title() + " Bank")
+        extracted_acc = meta.get("masked_account") or (fi_data.accounts[0].masked_number if fi_data.accounts else "XXXX-XXXX-8921")
+        extracted_branch = meta.get("branch") or (fi_data.accounts[0].branch if fi_data.accounts else "Main City Branch")
+        extracted_ifsc = meta.get("ifsc") or (fi_data.accounts[0].ifsc if fi_data.accounts else "SBIN0001234")
+        extracted_phone = meta.get("mobile") or phone or "+91 98980 12345"
+
+        # Register custom KYC entry with extracted credentials
         PERSONA_KYC[persona_id] = {
             "persona_id": persona_id,
-            "full_name": full_name,
-            "phone": phone,
+            "full_name": extracted_name,
+            "phone": extracted_phone,
             "masked_aadhaar": "XXXX-XXXX-9918",
             "pan": "BKPVR9918K",
             "dob": "1988-05-18",
             "gender": "Male",
-            "address": "Opposite Agricultural Mandi, Rajkot, Gujarat - 360001",
+            "address": meta.get("address") or f"{extracted_branch}, Verified City",
             "kyc_source": f"Real Statement Verified ({file.filename})",
             "verification_timestamp": datetime.utcnow().isoformat() + "Z",
-            "occupation": "Micro-Business & Agri-Trader",
-            "bank_linked": f"{file.filename.split('.')[0].upper()} Account",
+            "occupation": "Verified Account Holder",
+            "bank_linked": f"{extracted_bank} ({extracted_acc})",
+            "branch": extracted_branch,
+            "ifsc": extracted_ifsc,
             "narrative": f"Uploaded real bank statement ({len(fi_data.transactions)} transactions analyzed). Live cashflow telemetry computed.",
             "empathetic_offer": {
                 "title": "Flexible Cashflow Micro-Buffer",
@@ -239,16 +254,36 @@ async def upload_bank_statement(
             }
         }
 
+        # Register custom persona in AA provider for downstream ML endpoints
+        from app.providers.aa.mock_rebit import RebitMockAAProvider
+        RebitMockAAProvider.register_custom_persona(
+            persona_id=persona_id,
+            profile={
+                "name": extracted_name,
+                "phone": extracted_phone,
+                "description": f"Account holder at {extracted_bank}",
+                "monthly_income": 65000,
+                "stress_profile": "dynamic_upload",
+            },
+            fi_data=fi_data,
+        )
+
         # Register and compute twin
-        twin = twin_service.register_uploaded_statement(persona_id, fi_data, full_name)
+        twin = twin_service.register_uploaded_statement(persona_id, fi_data, extracted_name)
 
         return {
             "status": "success",
             "filename": file.filename,
+            "customer_name": extracted_name,
+            "bank_name": extracted_bank,
+            "account_number": extracted_acc,
+            "ifsc": extracted_ifsc,
+            "branch": extracted_branch,
             "transactions_parsed": len(fi_data.transactions),
             "date_range_start": fi_data.data_range_start.isoformat(),
             "date_range_end": fi_data.data_range_end.isoformat(),
             "persona_id": persona_id,
+            "kyc": PERSONA_KYC[persona_id],
             "twin": twin,
         }
     except Exception as e:

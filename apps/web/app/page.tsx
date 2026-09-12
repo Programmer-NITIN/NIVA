@@ -154,13 +154,17 @@ export default function CustomerOnboardingPage() {
       const res = await uploadBankStatement(
         file,
         "custom_user",
-        kyc?.full_name || "User",
+        "",
         phone
       );
       setUploadedSummary({
         filename: res.filename,
+        customer_name: res.customer_name,
+        bank_name: res.bank_name,
+        account_number: res.account_number,
         transactions_parsed: res.transactions_parsed,
         twin: res.financial_twin || res.twin,
+        kyc: res.kyc,
       });
     } catch {
       setUploadedSummary({
@@ -323,9 +327,9 @@ export default function CustomerOnboardingPage() {
 
     const sessionData = {
       personaId: resolvedPersonaId,
-      name: kyc?.full_name || personaData?.name || "User",
+      name: uploadedSummary?.customer_name || personaData?.name || "User",
       phone: phone,
-      bankName: ingestionMethod === "setu" ? (selectedBankObj?.name || "State Bank of India") : (personaData?.bank || selectedBankObj?.name || "Linked Bank"),
+      bankName: ingestionMethod === "setu" ? (selectedBankObj?.name || "State Bank of India") : (uploadedSummary?.bank_name || personaData?.bank || selectedBankObj?.name || "Linked Bank"),
       ingestionSource: ingestionMethod,
       monthlyIncome:
         ingestionMethod === "setu"

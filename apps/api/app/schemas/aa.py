@@ -54,3 +54,4 @@ class FIDataResponse(BaseModel):
     data_range_start: datetime
     data_range_end: datetime
     total_transactions: int
+    metadata: Optional[dict] = None

@@ -56,24 +56,33 @@ export default function BankPortal() {
 
   return (
     <>
-      {/* Bank Nav */}
-      <nav className="navbar">
+      {/* Institutional Bank Nav */}
+      <nav className="navbar" style={{ background: "var(--niva-canvas)", borderBottom: "1px solid var(--niva-border)" }}>
         <div className="navbar-inner">
-          <a href="/" className="navbar-brand">
-            <span className="navbar-brand-icon">N</span>
-            NIVA
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="navbar-brand-icon" style={{ background: "var(--niva-deep-forest)", color: "var(--niva-electric-lime)" }}>N</div>
+            <div>
+              <span style={{ fontFamily: "Plus Jakarta Sans, sans-serif", fontWeight: 800, fontSize: 18, color: "var(--niva-obsidian)" }}>
+                NIVA Institutional
+              </span>
+              <span style={{ fontSize: 11, marginLeft: 8, color: "var(--niva-text-muted)", fontWeight: 600 }}>
+                Credit Risk &amp; Underwriting Console
+              </span>
+            </div>
+          </div>
           <ul className="navbar-tabs">
-            <li><a href="/">Overview</a></li>
-            <li><a href="/financial-state">Financial State</a></li>
-            <li><a href="/spending">Spending</a></li>
-            <li><a href="/ask-niva">Ask NIVA</a></li>
-            <li><a href="/responsible-gate">Responsible Gate</a></li>
-            <li><a href="/consent">Consent Center</a></li>
-            <li><a href="/bank" className="active">Bank Portal</a></li>
+            <li><a href="/bank" className="active">Customer 360</a></li>
+            <li><a href="#gate-audit">Responsible Gate Audit</a></li>
+            <li><a href="#rebit-ledger">ReBIT 1.1 Ingestion</a></li>
+            <li><a href="#restructuring">Relief Action</a></li>
           </ul>
-          <div className="navbar-right">
-            <span className="chip chip-neutral">Aditya S.</span>
+          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="chip chip-positive" style={{ fontSize: 11 }}>
+              ✓ RBI Fair Lending Compliant
+            </span>
+            <span className="chip chip-neutral" style={{ fontSize: 12, fontWeight: 700 }}>
+              Aditya S. (Risk Officer)
+            </span>
           </div>
         </div>
       </nav>

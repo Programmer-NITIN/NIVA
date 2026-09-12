@@ -83,16 +83,80 @@ def parse_date(date_str: str) -> datetime:
     return datetime.utcnow()
 
 class BankStatementParser:
-    """Intelligent multi-format Indian Bank Statement Parser."""
+    """Intelligent multi-format Indian Bank Statement Parser (CSV, Excel, PDF)."""
 
     @classmethod
-    def parse_csv_or_excel(cls, content: bytes, filename: str) -> FIDataResponse:
+    def parse_pdf(cls, content: bytes, filename: str, password: Optional[str] = None) -> List[List[str]]:
+        """
+        Extract tabular transaction rows from a PDF bank statement.
+        Supports password-protected PDFs (e.g., first 4 chars of name + DOB).
+        Strategy:
+          1. Try pdfplumber table extraction (works for SBI, HDFC, ICICI structured PDFs)
+          2. Fallback to text-line regex extraction for unstructured narration-heavy PDFs
+        """
+        import pdfplumber
+
+        raw_rows: List[List[str]] = []
+
+        try:
+            pdf = pdfplumber.open(io.BytesIO(content), password=password)
+        except Exception:
+            # If password fails or file is corrupt, try without password
+            try:
+                pdf = pdfplumber.open(io.BytesIO(content))
+            except Exception as e:
+                raise ValueError(f"Cannot open PDF '{filename}': {e}. If password-protected, provide the statement password.")
+
+        try:
+            for page in pdf.pages:
+                # Strategy 1: Try structured table extraction
+                tables = page.extract_tables()
+                if tables:
+                    for table in tables:
+                        for row in table:
+                            if row and any(cell and cell.strip() for cell in row if cell):
+                                cleaned = [str(cell).strip() if cell else "" for cell in row]
+                                raw_rows.append(cleaned)
+                else:
+                    # Strategy 2: Text-line extraction with regex splitting
+                    text = page.extract_text()
+                    if text:
+                        for line in text.split("\n"):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            # Try to detect date-prefixed transaction lines (dd/mm/yyyy or dd-mm-yyyy)
+                            date_match = re.match(r'^(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line)
+                            if date_match:
+                                # Split on multiple spaces (common in bank statement PDFs)
+                                parts = re.split(r'\s{2,}', line)
+                                if len(parts) >= 3:
+                                    raw_rows.append(parts)
+                                else:
+                                    # Try comma/tab splitting as fallback
+                                    parts = re.split(r'[,\t]', line)
+                                    if len(parts) >= 3:
+                                        raw_rows.append(parts)
+                            elif any(kw in line.lower() for kw in ["date", "narration", "description", "debit", "credit", "withdrawal", "deposit", "balance", "particular"]):
+                                # This looks like a header row
+                                parts = re.split(r'\s{2,}', line)
+                                if len(parts) >= 2:
+                                    raw_rows.append(parts)
+        finally:
+            pdf.close()
+
+        return raw_rows
+
+    @classmethod
+    def parse_csv_or_excel(cls, content: bytes, filename: str, password: Optional[str] = None) -> FIDataResponse:
         txns: List[FITransaction] = []
         lower_fn = filename.lower()
         
         raw_rows: List[List[str]] = []
 
-        if lower_fn.endswith(".xlsx") or lower_fn.endswith(".xls"):
+        if lower_fn.endswith(".pdf"):
+            raw_rows = cls.parse_pdf(content, filename, password=password)
+        elif lower_fn.endswith(".xlsx") or lower_fn.endswith(".xls"):
             try:
                 import openpyxl
                 wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)

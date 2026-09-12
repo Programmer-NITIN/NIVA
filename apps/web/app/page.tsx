@@ -546,7 +546,7 @@ export default function CustomerOnboardingPage() {
                       {language === "hi" ? "अपना बैंक स्टेटमेंट अपलोड करें" : "Upload Your Bank Statement"}
                     </h3>
                     <p className="body-sm text-secondary" style={{ maxWidth: 480, margin: "0 auto 16px" }}>
-                      Supports SBI, HDFC, ICICI, Bank of Baroda CSV or Excel statements. Automatically parsed into standard ReBIT 1.1 JSON format.
+                      Supports SBI, HDFC, ICICI, Bank of Baroda CSV, Excel, or PDF statements. Password-protected PDFs are supported. Automatically parsed into standard ReBIT 1.1 JSON format.
                     </p>
 
                     <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -555,10 +555,10 @@ export default function CustomerOnboardingPage() {
                         background: "var(--niva-deep-forest)", color: "var(--niva-electric-lime)",
                         fontWeight: 600, fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8,
                       }}>
-                        📁 Choose File (.csv, .xlsx)
+                        📁 Choose File (.csv, .xlsx, .pdf)
                         <input
                           type="file"
-                          accept=".csv,.xlsx,.xls,text/csv"
+                          accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf"
                           style={{ display: "none" }}
                           onChange={(e) => {
                             if (e.target.files?.[0]) {

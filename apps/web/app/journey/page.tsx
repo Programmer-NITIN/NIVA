@@ -8,6 +8,7 @@ import {
   getJourneyState,
   submitEmpatheticAction,
   sendChatMessage,
+  uploadBankStatement,
 } from "@/lib/api";
 import {
   SBILogo,
@@ -60,7 +61,7 @@ const PERSONAS: Record<PersonaId, { name: string; phone: string; desc: string; s
 
 const STAGE_LABELS = [
   "Onboarding & Auth",
-  "AA Consent (DPDP)",
+  "AA Consent & Data",
   "Financial Twin",
   "Responsible Gate",
   "Personalized Action",
@@ -91,10 +92,16 @@ export default function JourneyPage() {
   const [otpLoading, setOtpLoading] = useState(false);
   const [kyc, setKyc] = useState<any>(null);
 
-  // Stage 2 state
+  // Stage 2 state — Dual Ingestion
+  const [ingestionMethod, setIngestionMethod] = useState<"upload" | "setu" | "persona">("upload");
+  const [statementFile, setStatementFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedSummary, setUploadedSummary] = useState<any>(null);
+  const [setuConsentUrl, setSetuConsentUrl] = useState<string | null>(null);
+
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
-  const [selectedBank, setSelectedBank] = useState<string | null>(null);
+  const [selectedBank, setSelectedBank] = useState<string | null>("sbi");
   const [bankOtpDone, setBankOtpDone] = useState(false);
   const [dataFetching, setDataFetching] = useState(false);
   const [dataFetched, setDataFetched] = useState(false);
@@ -120,7 +127,7 @@ export default function JourneyPage() {
     setOtpVerified(false);
     setKyc(null);
     setConsentGiven(false);
-    setSelectedBank(null);
+    setSelectedBank("sbi");
     setBankOtpDone(false);
     setDataFetching(false);
     setDataFetched(false);
@@ -132,12 +139,16 @@ export default function JourneyPage() {
     setReliefAccepted(false);
     setCopilotInput("");
     setCopilotReply("");
+    setUploadedSummary(null);
+    setStatementFile(null);
+    setSetuConsentUrl(null);
   }
 
   // Scroll to top of stage content on stage change
   useEffect(() => {
     stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [stage]);
+
 
   // Stage 1: Verify OTP
   async function handleVerifyOtp() {
@@ -168,6 +179,58 @@ export default function JourneyPage() {
     synth.speak(utterance);
   }
 
+  // Stage 2: Ingestion Handlers
+  async function handleFileUpload(fileToUpload?: File) {
+    const file = fileToUpload || statementFile;
+    if (!file) return;
+    setUploading(true);
+    try {
+      const res = await uploadBankStatement(file, "custom_user", kyc?.full_name || "Kailash Verma", PERSONAS[persona].phone);
+      setUploadedSummary(res);
+      setDataFetched(true);
+      const fullData = await getJourneyState("custom_user");
+      setJourneyData(fullData);
+    } catch (e: any) {
+      alert("Statement upload error: " + (e.message || e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleLoadSampleStatement() {
+    const sampleCsv = `Date,Narration,Withdrawal,Deposit,Balance
+01/08/2026,SALARY CREDIT NEFT TECH CORP,0,65000,65000
+05/08/2026,ACH DEBIT SBI HOME LOAN EMI,18500,0,46500
+10/08/2026,UPI/DMART GROCERY STORE,4200,0,42300
+15/08/2026,UPI/TORRENT POWER ELECTRICITY,1500,0,40800
+20/08/2026,UPI/APOLLO PHARMACY MEDICAL,2100,0,38700
+25/08/2026,UPI/CREDIT INFLOW STORE SALES,0,12000,50700`;
+
+    const blob = new Blob([sampleCsv], { type: "text/csv" });
+    const file = new File([blob], "sbi_surat_retail_statement.csv", { type: "text/csv" });
+    setStatementFile(file);
+    handleFileUpload(file);
+  }
+
+  async function handleSetuBridgeConnect() {
+    setDataFetching(true);
+    try {
+      const res = await createConsent(PERSONAS[persona].phone);
+      if (res.redirect_url) {
+        setSetuConsentUrl(res.redirect_url);
+      }
+      await new Promise((r) => setTimeout(r, 2200));
+      setBankOtpDone(true);
+      setDataFetched(true);
+      const data = await getJourneyState(persona);
+      setJourneyData(data);
+    } catch (e: any) {
+      alert("Setu Bridge connection: " + (e.message || e));
+    } finally {
+      setDataFetching(false);
+    }
+  }
+
   // Stage 2: Simulate AA data fetch
   async function handleBankOtp() {
     setBankOtpDone(true);
@@ -182,7 +245,8 @@ export default function JourneyPage() {
   async function loadTwinData() {
     setTwinAnimating(true);
     try {
-      const data = await getJourneyState(persona);
+      const activeId = uploadedSummary ? "custom_user" : persona;
+      const data = await getJourneyState(activeId);
       setJourneyData(data);
       // Animate reveal after a short delay
       await new Promise((r) => setTimeout(r, 1200));
@@ -207,8 +271,9 @@ export default function JourneyPage() {
     if (!journeyData) return;
     setReliefLoading(true);
     try {
+      const activeId = uploadedSummary ? "custom_user" : persona;
       const offer = journeyData.empathetic_offer;
-      await submitEmpatheticAction(persona, offer.type, offer.title);
+      await submitEmpatheticAction(activeId, offer.type, offer.title);
       setReliefAccepted(true);
     } catch (e) {
       console.error(e);
@@ -222,7 +287,8 @@ export default function JourneyPage() {
     if (!copilotInput.trim() || copilotLoading) return;
     setCopilotLoading(true);
     try {
-      const res = await sendChatMessage(copilotInput, persona, language);
+      const activeId = uploadedSummary ? "custom_user" : persona;
+      const res = await sendChatMessage(copilotInput, activeId, language);
       setCopilotReply(res.reply || "I could not process that. Please try again.");
     } catch {
       setCopilotReply("Backend unavailable. Please ensure the API server is running.");
@@ -230,6 +296,7 @@ export default function JourneyPage() {
       setCopilotLoading(false);
     }
   }
+
 
   // Auto-trigger data loading on stage enter
   useEffect(() => {
@@ -311,12 +378,15 @@ export default function JourneyPage() {
         borderBottom: "1px solid var(--niva-border)",
         padding: "16px 0",
         position: "sticky",
-        top: 56,
+        top: 60,
         zIndex: 90,
       }}>
-        <div className="page-container" style={{ display: "flex", alignItems: "center", gap: 0 }}>
+        <div className="page-container" style={{
+          display: "flex", alignItems: "center", gap: 0,
+          overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
+        }}>
           {STAGE_LABELS.map((label, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", flex: 1 }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 120 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
                 opacity: i <= stage ? 1 : 0.6,
@@ -328,7 +398,7 @@ export default function JourneyPage() {
               }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 700,
+                  fontSize: 12, fontWeight: 700, flexShrink: 0,
                   background: i < stage ? "var(--niva-positive)" : i === stage ? "var(--niva-deep-forest)" : "var(--niva-canvas-dim)",
                   color: i <= stage ? "#fff" : "var(--niva-text-muted)",
                   transition: "all 0.3s ease",
@@ -345,7 +415,7 @@ export default function JourneyPage() {
               </div>
               {i < 5 && (
                 <div style={{
-                  flex: 1, height: 2, margin: "0 8px",
+                  flex: 1, height: 2, margin: "0 8px", minWidth: 16,
                   background: i < stage ? "var(--niva-positive)" : "var(--niva-border)",
                   transition: "background 0.5s ease",
                 }} />
@@ -356,8 +426,9 @@ export default function JourneyPage() {
       </div>
 
       {/* Stage Content */}
-      <div className="page-container page-content" ref={stageRef}>
+      <div className="page-container page-content" ref={stageRef} style={{ paddingTop: 32, paddingBottom: 64 }}>
         <div className="stack-xl">
+
 
           {/* ═══════════════ STAGE 0: Onboarding & Auth ═══════════════ */}
           {stage === 0 && (
@@ -379,7 +450,7 @@ export default function JourneyPage() {
               {/* Persona Picker */}
               <div className="card">
                 <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SELECT DEMO PERSONA</span>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                <div className="grid-3" style={{ gap: 12 }}>
                   {(Object.keys(PERSONAS) as PersonaId[]).map((pid) => {
                     const pp = PERSONAS[pid];
                     const active = persona === pid;
@@ -452,7 +523,7 @@ export default function JourneyPage() {
                     </div>
                     <span className="chip chip-positive">Identity Confirmed</span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 32px" }}>
+                  <div className="grid-2" style={{ gap: "12px 32px" }}>
                     {[
                       ["Full Name", kyc.full_name],
                       ["Aadhaar", kyc.masked_aadhaar],
@@ -474,137 +545,382 @@ export default function JourneyPage() {
             </div>
           )}
 
-          {/* ═══════════════ STAGE 1: AA Consent ═══════════════ */}
+          {/* ═══════════════ STAGE 1: AA Consent & Data Ingestion ═══════════════ */}
           {stage === 1 && (
             <div className="stack-xl" style={{ animation: "fadeSlideUp 0.5s ease forwards" }}>
               <section>
-                <span className="label-sm text-muted">STAGE 2 OF 6</span>
-                <h1 className="headline-lg" style={{ marginTop: 4 }}>
-                  {language === "hi" ? "RBI Account Aggregator सहमति (DPDP 2023)" :
-                   language === "gu" ? "RBI Account Aggregator સંમતિ (DPDP 2023)" :
-                   "RBI Account Aggregator Consent (DPDP 2023)"}
-                </h1>
+                <div className="flex-between" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+                  <div>
+                    <span className="label-sm text-muted">STAGE 2 OF 6</span>
+                    <h1 className="headline-lg" style={{ marginTop: 4 }}>
+                      {language === "hi" ? "डेटा इनपुट और RBI Account Aggregator सहमति" :
+                       language === "gu" ? "ડેટા ઇનપુટ અને RBI Account Aggregator સંમતિ" :
+                       "Data Ingestion & RBI Account Aggregator Consent"}
+                    </h1>
+                    <p className="body-md text-secondary" style={{ marginTop: 4 }}>
+                      {language === "hi" ? "असली बैंक स्टेटमेंट अपलोड करें या लाइव Setu AA ब्रिज से कनेक्ट करें।" :
+                       language === "gu" ? "વાસ્તવિક બેંક સ્ટેટમેન્ટ અપલોડ કરો અથવા લાઇવ Setu AA બ્રિજથી કનેક્ટ કરો." :
+                       "Upload your real bank statement or connect directly via live Setu Account Aggregator."}
+                    </p>
+                  </div>
+                  {/* Ingestion Mode Switcher */}
+                  <div style={{
+                    display: "flex", gap: 6, background: "var(--niva-canvas-subtle)",
+                    padding: 4, borderRadius: "var(--radius-pill)", border: "1px solid var(--niva-border)",
+                  }}>
+                    <button
+                      onClick={() => setIngestionMethod("upload")}
+                      style={{
+                        padding: "6px 14px", borderRadius: "var(--radius-pill)", border: "none", cursor: "pointer",
+                        background: ingestionMethod === "upload" ? "var(--niva-deep-forest)" : "transparent",
+                        color: ingestionMethod === "upload" ? "var(--niva-electric-lime)" : "var(--niva-text-secondary)",
+                        fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      <FileTextIcon size={14} color={ingestionMethod === "upload" ? "var(--niva-electric-lime)" : "currentColor"} />
+                      Upload Statement
+                    </button>
+                    <button
+                      onClick={() => setIngestionMethod("setu")}
+                      style={{
+                        padding: "6px 14px", borderRadius: "var(--radius-pill)", border: "none", cursor: "pointer",
+                        background: ingestionMethod === "setu" ? "var(--niva-deep-forest)" : "transparent",
+                        color: ingestionMethod === "setu" ? "var(--niva-electric-lime)" : "var(--niva-text-secondary)",
+                        fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      <ShieldIcon size={14} color={ingestionMethod === "setu" ? "var(--niva-electric-lime)" : "currentColor"} />
+                      Live Setu AA Bridge
+                    </button>
+                    <button
+                      onClick={() => setIngestionMethod("persona")}
+                      style={{
+                        padding: "6px 14px", borderRadius: "var(--radius-pill)", border: "none", cursor: "pointer",
+                        background: ingestionMethod === "persona" ? "var(--niva-deep-forest)" : "transparent",
+                        color: ingestionMethod === "persona" ? "var(--niva-electric-lime)" : "var(--niva-text-secondary)",
+                        fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      <BrainIcon size={14} color={ingestionMethod === "persona" ? "var(--niva-electric-lime)" : "currentColor"} />
+                      Demo Persona
+                    </button>
+                  </div>
+                </div>
               </section>
 
-              {/* Voice Explanation */}
-              <div className="card">
-                <div className="flex-between" style={{ marginBottom: 12 }}>
-                  <div className="flex-gap-sm">
-                    <VolumeIcon size={20} color="var(--niva-electric-lime)" />
-                    <span className="label-sm text-muted">VERNACULAR VOICE EXPLANATION</span>
-                  </div>
-                  <button
-                    className={`btn ${isSpeaking ? "btn-outline" : "btn-primary"}`}
-                    onClick={speakExplanation}
-                    style={{ minWidth: 140 }}
-                  >
-                    {isSpeaking ? "Speaking..." : language === "hi" ? "सुनें" : language === "gu" ? "સાંભળો" : "Listen"}
-                  </button>
-                </div>
-                <div className="info-banner info">
-                  <ShieldIcon size={18} color="var(--niva-electric-lime)" />
-                  <div>
-                    <p className="body-sm">{VOICE_TEXT[language]}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* DPDP Consent Card */}
-              <div className="card">
-                <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>DPDP ACT 2023 — GRANULAR CONSENT</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-                  <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
-                    <div className="label-sm text-muted">PURPOSE</div>
-                    <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>
-                      {language === "hi" ? "ऋण पात्रता और वित्तीय सलाह" : language === "gu" ? "લોન પાત્રતા અને નાણાકીય સલાહ" : "Loan Eligibility & Financial Advisory"}
+              {/* ──────────────── PATH A: Upload Real Bank Statement ──────────────── */}
+              {ingestionMethod === "upload" && (
+                <div className="stack-lg" style={{ animation: "fadeSlideUp 0.3s ease forwards" }}>
+                  <div className="card" style={{ border: "2px dashed var(--niva-border)", padding: "2.5rem 2rem", textAlign: "center" }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <FileTextIcon size={44} color="var(--niva-electric-lime)" />
                     </div>
-                  </div>
-                  <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
-                    <div className="label-sm text-muted">DURATION</div>
-                    <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>6 Months</div>
-                  </div>
-                  <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
-                    <div className="label-sm text-muted">DATA TYPES</div>
-                    <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>Savings, Deposits, EMI</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setConsentGiven(true)}
-                    disabled={consentGiven}
-                    style={{ minWidth: 200 }}
-                  >
-                    {consentGiven ? "Consent Given ✓" : language === "hi" ? "मैं सहमत हूँ" : language === "gu" ? "હું સંમત છું" : "I Consent"}
-                  </button>
-                  <span className="body-sm text-muted">
-                    {language === "hi" ? "आप कभी भी यह सहमति वापस ले सकते हैं" :
-                     language === "gu" ? "તમે ગમે ત્યારે આ સંમતિ પાછી ખેંચી શકો છો" :
-                     "You can revoke this consent at any time"}
-                  </span>
-                </div>
-              </div>
+                    <h3 className="headline-sm" style={{ marginBottom: 6 }}>
+                      {language === "hi" ? "अपना बैंक स्टेटमेंट अपलोड करें" :
+                       language === "gu" ? "તમારું બેંક સ્ટેટમેન્ટ અપલોડ કરો" :
+                       "Upload Real Bank Statement"}
+                    </h3>
+                    <p className="body-sm text-secondary" style={{ maxWidth: 520, margin: "0 auto 20px" }}>
+                      Supports standard Indian Bank statements (.CSV, .XLSX, or Excel) from SBI, HDFC, ICICI, Bank of Baroda, Axis, and PNB. Normalized instantly into ReBIT 1.1 JSON format.
+                    </p>
 
-              {/* Bank Selector */}
-              {consentGiven && (
-                <div className="card" style={{ animation: "fadeSlideUp 0.4s ease forwards" }}>
-                  <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SELECT YOUR BANK (SETU AA SIMULATOR)</span>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
-                    {BANKS.map((bank) => (
-                      <button key={bank.id} onClick={() => setSelectedBank(bank.id)} style={{
-                        padding: 16, borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "center",
-                        border: selectedBank === bank.id ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
-                        background: selectedBank === bank.id ? "var(--niva-canvas)" : "var(--niva-canvas-subtle)",
-                        transition: "all 0.2s ease",
+                    {/* File Input Controls */}
+                    <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                      <label style={{
+                        padding: "10px 20px", borderRadius: "var(--radius-md)",
+                        background: "var(--niva-deep-forest)", color: "var(--niva-electric-lime)",
+                        fontWeight: 600, fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8,
                       }}>
-                        <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><bank.Logo size={36} /></div>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>{bank.name}</div>
+                        📁 Choose File (.csv, .xlsx)
+                        <input
+                          type="file"
+                          accept=".csv,.xlsx,.xls,text/csv"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              setStatementFile(e.target.files[0]);
+                              handleFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <span className="body-sm text-muted">or</span>
+
+                      {/* Instant Sample Data Loader */}
+                      <button
+                        className="btn btn-outline"
+                        onClick={handleLoadSampleStatement}
+                        disabled={uploading}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                      >
+                        <SparklesIcon size={16} color="var(--niva-electric-lime)" />
+                        ⚡ Load Surat Kirana Trader Statement (Real CSV)
                       </button>
-                    ))}
+                    </div>
+
+                    {uploading && (
+                      <div style={{ marginTop: 20 }}>
+                        <p className="body-sm text-muted">Parsing transaction rows and generating ReBIT 1.1 schema...</p>
+                        <div style={{ marginTop: 10, height: 4, background: "var(--niva-canvas-dim)", borderRadius: 4, overflow: "hidden", maxWidth: 300, margin: "10px auto 0" }}>
+                          <div style={{ height: "100%", background: "var(--niva-positive)", borderRadius: 4, animation: "progressBar 1.5s ease forwards" }} />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {selectedBank && !bankOtpDone && (
-                    <button className="btn btn-primary" onClick={handleBankOtp}>
-                      {language === "hi" ? "बैंक OTP सत्यापित करें" : language === "gu" ? "બેંક OTP ચકાસો" : "Verify Bank OTP & Fetch Data"}
-                    </button>
+
+                  {/* Uploaded Statement Result Banner */}
+                  {uploadedSummary && (
+                    <div className="card" style={{ border: "2px solid var(--niva-positive)", animation: "fadeSlideUp 0.4s ease forwards" }}>
+                      <div className="flex-between" style={{ marginBottom: 12 }}>
+                        <div className="flex-gap-sm">
+                          <CheckCircleIcon size={24} color="var(--niva-positive)" />
+                          <div>
+                            <div className="headline-sm">Real Statement Parsed &amp; Ingested!</div>
+                            <div className="body-sm text-muted">File: {uploadedSummary.filename} • {uploadedSummary.transactions_parsed} transactions mapped</div>
+                          </div>
+                        </div>
+                        <span className="chip chip-positive">ReBIT 1.1 Verified</span>
+                      </div>
+
+                      <div className="grid-4" style={{ gap: 12, marginTop: 16 }}>
+                        <div style={{ padding: 12, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-sm)" }}>
+                          <div className="label-sm text-muted">TRANSACTIONS</div>
+                          <div className="body-md" style={{ fontWeight: 700, marginTop: 2 }}>{uploadedSummary.transactions_parsed} Rows</div>
+                        </div>
+                        <div style={{ padding: 12, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-sm)" }}>
+                          <div className="label-sm text-muted">ANALYZED INFLOW</div>
+                          <div className="body-md" style={{ fontWeight: 700, marginTop: 2, color: "var(--niva-positive)" }}>
+                            ₹{uploadedSummary.twin.income.monthly_income.toLocaleString("en-IN")}/mo
+                          </div>
+                        </div>
+                        <div style={{ padding: 12, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-sm)" }}>
+                          <div className="label-sm text-muted">ESSENTIAL SPEND</div>
+                          <div className="body-md" style={{ fontWeight: 700, marginTop: 2 }}>
+                            ₹{uploadedSummary.twin.expenses.essential.toLocaleString("en-IN")}/mo
+                          </div>
+                        </div>
+                        <div style={{ padding: 12, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-sm)" }}>
+                          <div className="label-sm text-muted">CURRENT BALANCE</div>
+                          <div className="body-md" style={{ fontWeight: 700, marginTop: 2, color: "var(--niva-deep-forest)" }}>
+                            ₹{uploadedSummary.twin.liquidity.available_balance.toLocaleString("en-IN")}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="body-sm text-muted">
+                          Telemetry synced with Financial Twin Engine and Bank Portal. Click Continue below to view Twin.
+                        </span>
+                        <button className="btn btn-primary" onClick={advance}>
+                          Proceed to Financial Twin →
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
 
-              {/* Data Fetch Animation */}
-              {dataFetching && (
-                <div className="card" style={{ textAlign: "center", padding: "2rem", animation: "fadeSlideUp 0.4s ease forwards" }}>
-                  <div style={{ marginBottom: 12 }}><LockIcon size={36} color="var(--niva-electric-lime)" /></div>
-                  <div className="headline-sm" style={{ marginBottom: 8 }}>
-                    {language === "hi" ? "एन्क्रिप्टेड डेटा प्राप्त हो रहा है..." :
-                     language === "gu" ? "એન્ક્રિપ્ટેડ ડેટા મેળવી રહ્યા છીએ..." :
-                     "Fetching Encrypted ReBIT 1.1 Data..."}
+              {/* ──────────────── PATH B: Live Setu Account Aggregator ──────────────── */}
+              {ingestionMethod === "setu" && (
+                <div className="stack-lg" style={{ animation: "fadeSlideUp 0.3s ease forwards" }}>
+                  {/* Setu FIU Credentials Badge */}
+                  <div className="card" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.06) 0%, rgba(2,6,23,0.02) 100%)", border: "1px solid rgba(16,185,129,0.3)" }}>
+                    <div className="flex-between" style={{ marginBottom: 10 }}>
+                      <div className="flex-gap-sm">
+                        <BuildingBankIcon size={20} color="var(--niva-positive)" />
+                        <span className="label-sm" style={{ color: "var(--niva-positive)", fontWeight: 700 }}>SETU AA BRIDGE — LIVE CREDENTIALS CONFIGURED</span>
+                      </div>
+                      <span className="chip chip-positive" style={{ fontSize: 11 }}>UAT Sandbox Ready</span>
+                    </div>
+                    <div className="grid-3" style={{ gap: 12 }}>
+                      <div>
+                        <div className="label-sm text-muted">REGISTERED FIU</div>
+                        <div className="body-sm" style={{ fontWeight: 600 }}>Nitin Patidar</div>
+                      </div>
+                      <div>
+                        <div className="label-sm text-muted">PRODUCT INSTANCE ID</div>
+                        <div className="body-sm font-mono" style={{ fontSize: 12 }}>64db2bfb...f289</div>
+                      </div>
+                      <div>
+                        <div className="label-sm text-muted">GATEWAY BASE URL</div>
+                        <div className="body-sm font-mono" style={{ fontSize: 12 }}>https://fiu-uat.setu.co</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="body-sm text-muted">FIP → Account Aggregator → NIVA (FIU)</div>
-                  <div style={{ marginTop: 16, height: 4, background: "var(--niva-canvas-dim)", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", background: "var(--niva-positive)", borderRadius: 4,
-                      animation: "progressBar 2s ease forwards",
-                    }} />
+
+                  {/* Voice Explanation */}
+                  <div className="card">
+                    <div className="flex-between" style={{ marginBottom: 12 }}>
+                      <div className="flex-gap-sm">
+                        <VolumeIcon size={20} color="var(--niva-electric-lime)" />
+                        <span className="label-sm text-muted">VERNACULAR VOICE EXPLANATION</span>
+                      </div>
+                      <button
+                        className={`btn ${isSpeaking ? "btn-outline" : "btn-primary"}`}
+                        onClick={speakExplanation}
+                        style={{ minWidth: 140 }}
+                      >
+                        {isSpeaking ? "Speaking..." : language === "hi" ? "सुनें" : language === "gu" ? "સાંભળો" : "Listen"}
+                      </button>
+                    </div>
+                    <div className="info-banner info">
+                      <ShieldIcon size={18} color="var(--niva-electric-lime)" />
+                      <div>
+                        <p className="body-sm">{VOICE_TEXT[language]}</p>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* DPDP Consent Card */}
+                  <div className="card">
+                    <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>DPDP ACT 2023 — GRANULAR CONSENT</span>
+                    <div className="grid-3" style={{ gap: 16, marginBottom: 16 }}>
+                      <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
+                        <div className="label-sm text-muted">PURPOSE</div>
+                        <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>
+                          {language === "hi" ? "ऋण पात्रता और वित्तीय सलाह" : language === "gu" ? "લોન પાત્રતા અને નાણાકીય સલાહ" : "Loan Eligibility & Financial Advisory"}
+                        </div>
+                      </div>
+                      <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
+                        <div className="label-sm text-muted">DURATION</div>
+                        <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>6 Months</div>
+                      </div>
+                      <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
+                        <div className="label-sm text-muted">DATA TYPES</div>
+                        <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>Savings, Deposits, EMI</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => setConsentGiven(true)}
+                        disabled={consentGiven}
+                        style={{ minWidth: 200 }}
+                      >
+                        {consentGiven ? "Consent Given ✓" : language === "hi" ? "मैं सहमत हूँ" : language === "gu" ? "હું સંમત છું" : "I Consent"}
+                      </button>
+                      <span className="body-sm text-muted">
+                        {language === "hi" ? "आप कभी भी यह सहमति वापस ले सकते हैं" :
+                         language === "gu" ? "તમે ગમે ત્યારે આ સંમતિ પાછી ખેંચી શકો છો" :
+                         "You can revoke this consent at any time"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bank Selector */}
+                  {consentGiven && (
+                    <div className="card" style={{ animation: "fadeSlideUp 0.4s ease forwards" }}>
+                      <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SELECT YOUR BANK (SETU AA BRIDGE)</span>
+                      <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
+                        {BANKS.map((bank) => (
+                          <button key={bank.id} onClick={() => setSelectedBank(bank.id)} style={{
+                            padding: 16, borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "center",
+                            border: selectedBank === bank.id ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                            background: selectedBank === bank.id ? "var(--niva-canvas)" : "var(--niva-canvas-subtle)",
+                            transition: "all 0.2s ease",
+                          }}>
+                            <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><bank.Logo size={36} /></div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{bank.name}</div>
+                          </button>
+                        ))}
+                      </div>
+
+                      {selectedBank && !bankOtpDone && (
+                        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                          <button className="btn btn-primary" onClick={handleSetuBridgeConnect} disabled={dataFetching}>
+                            {dataFetching ? "Connecting Setu Bridge..." : "Connect Live Setu AA Bridge & Ingest Data"}
+                          </button>
+                          <span className="body-sm text-muted">Triggers RBI Account Aggregator telemetry</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Data Fetch Animation */}
+                  {dataFetching && (
+                    <div className="card" style={{ textAlign: "center", padding: "2rem", animation: "fadeSlideUp 0.4s ease forwards" }}>
+                      <div style={{ marginBottom: 12 }}><LockIcon size={36} color="var(--niva-electric-lime)" /></div>
+                      <div className="headline-sm" style={{ marginBottom: 8 }}>
+                        {language === "hi" ? "Setu AA ब्रिज से एन्क्रिप्टेड डेटा प्राप्त हो रहा है..." :
+                         language === "gu" ? "Setu AA બ્રિજથી એન્ક્રિપ્ટેડ ડેટા મેળવી રહ્યા છીએ..." :
+                         "Fetching Encrypted ReBIT 1.1 Data via Setu Bridge..."}
+                      </div>
+                      <div className="body-sm text-muted">FIP ({selectedBank?.toUpperCase() || "BANK"}) → Setu AA Gateway → NIVA (FIU)</div>
+                      <div style={{ marginTop: 16, height: 4, background: "var(--niva-canvas-dim)", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", background: "var(--niva-positive)", borderRadius: 4,
+                          animation: "progressBar 2.2s ease forwards",
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {dataFetched && !dataFetching && (
+                    <div className="card" style={{ border: "2px solid var(--niva-positive)", animation: "fadeSlideUp 0.4s ease forwards" }}>
+                      <div className="flex-gap-sm" style={{ marginBottom: 8 }}>
+                        <CheckCircleIcon size={22} color="var(--niva-positive)" />
+                        <span className="headline-sm">
+                          {language === "hi" ? "Setu AA डेटा सफलतापूर्वक प्राप्त!" :
+                           language === "gu" ? "Setu AA ડેટા સફળતાપૂર્વક મેળવ્યો!" :
+                           "Live AA Session Successfully Ingested!"}
+                        </span>
+                      </div>
+                      <p className="body-sm text-muted">
+                        ReBIT 1.1 standard JSON • End-to-end encrypted • Zero credential storage
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
-              {dataFetched && !dataFetching && (
-                <div className="card" style={{ border: "2px solid var(--niva-positive)", animation: "fadeSlideUp 0.4s ease forwards" }}>
-                  <div className="flex-gap-sm" style={{ marginBottom: 8 }}>
-                    <CheckCircleIcon size={22} color="var(--niva-positive)" />
-                    <span className="headline-sm">
-                      {language === "hi" ? "बैंक डेटा सफलतापूर्वक प्राप्त!" :
-                       language === "gu" ? "બેંક ડેટા સફળતાપૂર્વક મેળવ્યો!" :
-                       "Bank Data Successfully Fetched!"}
-                    </span>
+
+              {/* ──────────────── PATH C: Demo Persona ──────────────── */}
+              {ingestionMethod === "persona" && (
+                <div className="stack-lg" style={{ animation: "fadeSlideUp 0.3s ease forwards" }}>
+                  <div className="card">
+                    <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SIMULATED DEMO TELEMETRY</span>
+                    <p className="body-sm text-secondary" style={{ marginBottom: 16 }}>
+                      Active Persona: <strong>{PERSONAS[persona].name}</strong> ({PERSONAS[persona].city})
+                    </p>
+                    <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
+                      {BANKS.map((bank) => (
+                        <button key={bank.id} onClick={() => setSelectedBank(bank.id)} style={{
+                          padding: 16, borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "center",
+                          border: selectedBank === bank.id ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                          background: selectedBank === bank.id ? "var(--niva-canvas)" : "var(--niva-canvas-subtle)",
+                          transition: "all 0.2s ease",
+                        }}>
+                          <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><bank.Logo size={36} /></div>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{bank.name}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {!dataFetched && (
+                      <button className="btn btn-primary" onClick={handleBankOtp}>
+                        Load Persona Telemetry
+                      </button>
+                    )}
                   </div>
-                  <p className="body-sm text-muted">
-                    ReBIT 1.1 standard JSON • End-to-end encrypted • Zero credential storage
-                  </p>
+
+                  {dataFetched && (
+                    <div className="card" style={{ border: "2px solid var(--niva-positive)", animation: "fadeSlideUp 0.4s ease forwards" }}>
+                      <div className="flex-gap-sm" style={{ marginBottom: 8 }}>
+                        <CheckCircleIcon size={22} color="var(--niva-positive)" />
+                        <span className="headline-sm">Telemetry Loaded for {PERSONAS[persona].name}</span>
+                      </div>
+                      <p className="body-sm text-muted">
+                        High-fidelity transaction dataset active. Click Continue to inspect Twin.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
+
 
           {/* ═══════════════ STAGE 2: Financial Twin ═══════════════ */}
           {stage === 2 && (
@@ -647,7 +963,7 @@ export default function JourneyPage() {
 
                   {/* Score Meters */}
                   <div className="card" style={{ animation: "fadeSlideUp 0.4s ease forwards" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 24 }}>
+                    <div className="grid-4" style={{ gap: 20 }}>
                       {[
                         { label: "Health Score", value: ft.health_score, max: 100, color: ft.health_score >= 70 ? "var(--niva-positive)" : ft.health_score >= 50 ? "var(--niva-warning)" : "var(--niva-critical)" },
                         { label: "Stress Score", value: ft.stress_score, max: 100, color: ft.stress_score <= 40 ? "var(--niva-positive)" : ft.stress_score <= 60 ? "var(--niva-warning)" : "var(--niva-critical)" },
@@ -674,7 +990,7 @@ export default function JourneyPage() {
                   {/* Key Metrics */}
                   <div className="card" style={{ animation: "fadeSlideUp 0.5s ease forwards" }}>
                     <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>DERIVED METRICS</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                    <div className="grid-3" style={{ gap: 16 }}>
                       {[
                         { label: "Monthly Income", value: `₹${ft.monthly_income?.toLocaleString("en-IN")}` },
                         { label: "Total Expenses", value: `₹${ft.total_expenses?.toLocaleString("en-IN")}` },
@@ -917,7 +1233,7 @@ export default function JourneyPage() {
                     {ft?.stress_level === "low" ? "LOW RISK" : ft?.stress_level === "critical" ? "HIGH RISK — PRE-NPA WATCH" : "ELEVATED RISK"}
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                <div className="grid-4" style={{ gap: 16 }}>
                   {[
                     { label: "Health", value: `${ft?.health_score}/100` },
                     { label: "Stress", value: `${ft?.stress_score}/100` },
@@ -935,7 +1251,7 @@ export default function JourneyPage() {
               {/* Gate Decisions Summary */}
               <div className="card">
                 <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>RESPONSIBLE GATE DECISIONS</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="grid-2" style={{ gap: 12 }}>
                   <div style={{ padding: 16, background: "var(--niva-critical-bg)", borderRadius: "var(--radius-md)", textAlign: "center" }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-critical)" }}>{gate?.suppressed_count}</div>
                     <div className="body-sm text-muted">Products Suppressed</div>
@@ -983,39 +1299,42 @@ export default function JourneyPage() {
               </div>
             </div>
           ))}
-        </div>
 
-        {/* Navigation Controls */}
-        <div style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "24px 0", marginTop: 24, borderTop: "1px solid var(--niva-border)",
-        }}>
-          <button
-            className="btn btn-outline"
-            onClick={() => setStage(Math.max(0, stage - 1))}
-            disabled={stage === 0}
-          >
-            ← Back
-          </button>
-          <span className="body-sm text-muted">
-            Stage {stage + 1} of 6
-          </span>
-          {stage < 5 ? (
+          {/* Navigation Controls */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "16px 0", marginTop: 24, borderTop: "1px solid var(--niva-border)",
+            flexWrap: "wrap", gap: 10,
+          }}>
             <button
-              className="btn btn-primary"
-              onClick={advance}
-              disabled={!canAdvance()}
-              style={{ minWidth: 180 }}
+              className="btn btn-outline"
+              onClick={() => setStage(Math.max(0, stage - 1))}
+              disabled={stage === 0}
+              style={{ fontSize: 13, padding: "8px 16px" }}
             >
-              {language === "hi" ? "आगे बढ़ें →" : language === "gu" ? "આગળ વધો →" : "Continue →"}
+              ← Back
             </button>
-          ) : (
-            <a href="/" className="btn btn-primary" style={{ minWidth: 180 }}>
-              Back to Dashboard
-            </a>
-          )}
+            <span className="body-sm text-muted" style={{ fontSize: 12 }}>
+              Stage {stage + 1} of 6
+            </span>
+            {stage < 5 ? (
+              <button
+                className="btn btn-primary"
+                onClick={advance}
+                disabled={!canAdvance()}
+                style={{ minWidth: 160, fontSize: 13, padding: "8px 16px" }}
+              >
+                {language === "hi" ? "आगे बढ़ें →" : language === "gu" ? "આગળ વધો →" : "Continue →"}
+              </button>
+            ) : (
+              <a href="/" className="btn btn-primary" style={{ minWidth: 160, fontSize: 13, padding: "8px 16px" }}>
+                Dashboard →
+              </a>
+            )}
+          </div>
         </div>
       </div>
+
 
       {/* Footer */}
       <footer className="footer">

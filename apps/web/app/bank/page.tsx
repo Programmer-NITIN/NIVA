@@ -56,24 +56,33 @@ export default function BankPortal() {
 
   return (
     <>
-      {/* Bank Nav */}
-      <nav className="navbar">
+      {/* Institutional Bank Nav */}
+      <nav className="navbar" style={{ background: "var(--niva-canvas)", borderBottom: "1px solid var(--niva-border)" }}>
         <div className="navbar-inner">
-          <a href="/" className="navbar-brand">
-            <span className="navbar-brand-icon">N</span>
-            NIVA
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="navbar-brand-icon" style={{ background: "var(--niva-deep-forest)", color: "var(--niva-electric-lime)" }}>N</div>
+            <div>
+              <span style={{ fontFamily: "Plus Jakarta Sans, sans-serif", fontWeight: 800, fontSize: 18, color: "var(--niva-obsidian)" }}>
+                NIVA Institutional
+              </span>
+              <span style={{ fontSize: 11, marginLeft: 8, color: "var(--niva-text-muted)", fontWeight: 600 }}>
+                Credit Risk &amp; Underwriting Console
+              </span>
+            </div>
+          </div>
           <ul className="navbar-tabs">
-            <li><a href="/">Overview</a></li>
-            <li><a href="/financial-state">Financial State</a></li>
-            <li><a href="/spending">Spending</a></li>
-            <li><a href="/ask-niva">Ask NIVA</a></li>
-            <li><a href="/responsible-gate">Responsible Gate</a></li>
-            <li><a href="/consent">Consent Center</a></li>
-            <li><a href="/bank" className="active">Bank Portal</a></li>
+            <li><a href="/bank" className="active">Customer 360</a></li>
+            <li><a href="#gate-audit">Responsible Gate Audit</a></li>
+            <li><a href="#rebit-ledger">ReBIT 1.1 Ingestion</a></li>
+            <li><a href="#restructuring">Relief Action</a></li>
           </ul>
-          <div className="navbar-right">
-            <span className="chip chip-neutral">Aditya S.</span>
+          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="chip chip-positive" style={{ fontSize: 11 }}>
+              ✓ RBI Fair Lending Compliant
+            </span>
+            <span className="chip chip-neutral" style={{ fontSize: 12, fontWeight: 700 }}>
+              Aditya S. (Risk Officer)
+            </span>
           </div>
         </div>
       </nav>
@@ -82,27 +91,87 @@ export default function BankPortal() {
         {loading ? (
           <div className="card" style={{ padding: "3rem", textAlign: "center" }}>Loading bank data...</div>
         ) : (
-          <div className="stack-xl stagger">
+          <div className="stack-xl">
+            {/* Institutional Console Banner & Customer 360 Switcher */}
+            <div className="card" style={{
+              background: "var(--niva-canvas-subtle)",
+              border: "1px solid var(--niva-border)",
+              padding: "16px 20px",
+            }}>
+              <div className="flex-between" style={{ marginBottom: 12 }}>
+                <div className="flex-gap-sm">
+                  <BuildingBankIcon size={20} color="var(--niva-deep-forest)" />
+                  <span className="label-sm" style={{ fontWeight: 700, letterSpacing: "0.05em", color: "var(--niva-deep-forest)" }}>
+                    INSTITUTIONAL UNDERWRITING CONSOLE • CUSTOMER 360 PORTFOLIO
+                  </span>
+                </div>
+                <span className="chip chip-neutral" style={{ fontSize: 11 }}>
+                  {customers.length} Underwriting Files Monitored
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {customers.map((c) => {
+                  const isSel = selected?.persona_id === c.persona_id;
+                  const isLive = c.persona_id.startsWith("custom_");
+                  return (
+                    <button
+                      key={c.persona_id}
+                      onClick={() => selectCustomer(c)}
+                      style={{
+                        padding: "10px 16px",
+                        borderRadius: "var(--radius-md)",
+                        border: isSel ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                        background: isSel ? "var(--niva-canvas)" : "transparent",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      <span className={`status-dot ${c.stress_level === "low" ? "positive" : c.stress_level === "critical" || c.stress_level === "high" ? "critical" : "warning"}`} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                          {c.name}
+                          {isLive && (
+                            <span className="chip chip-positive" style={{ fontSize: 9, padding: "1px 6px" }}>
+                              LIVE STATEMENT
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                          Score: {c.health_score}/100 • {c.gate_verdict || "APPROVED"}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Customer Header */}
             {selected && twin && (
               <>
                 <section>
                   <div className="body-sm text-muted flex-gap-sm" style={{ marginBottom: 4 }}>
                     <span className="chip chip-neutral" style={{ fontSize: 10 }}>BENCH v4.9 ACTIVE</span>
-                    <span className="status-dot positive" /> Setu AA Protocol 2.1.0
+                    <span className="status-dot positive" /> Setu AA Protocol 2.1.0 (DPDP Compliant)
                   </div>
                   <div className="flex-between">
                     <div>
                       <h1 className="headline-lg">{twin.persona_id}</h1>
                       <p className="body-md text-secondary">
-                        {selected.persona_id === "rajesh_sharma" ? "Lead Staff Systems Engineer • TechCorp India Ltd." :
-                         selected.persona_id === "anita_desai" ? "Kirana Store Owner • Self-employed" :
-                         "Freelance Designer + Delivery Partner"}
+                        {selected.persona_id === "rajesh_sharma" ? "Kirana Store Owner • Surat, Gujarat (High EMI Burden & Medical Shock)" :
+                         selected.persona_id === "anita_desai" ? "Senior QA Engineer • Bengaluru, Karnataka (Healthy Savings & Low Risk)" :
+                         selected.persona_id === "vikram_patel" ? "Gig Delivery Partner • Gandhinagar, Gujarat (Debt Restructuring Candidate)" :
+                         "Real Uploaded Bank Statement • Live ReBIT Telemetry Ingestion"}
                       </p>
                       <p className="body-sm text-muted" style={{ marginTop: 4 }}>
-                        ✓ Verified Digital Consent Session: Expires in 132 days (FID: SE-9402-BLR)
+                        ✓ Verified Digital Consent Session: Active &amp; Verified (FID: SE-9402-BLR)
                       </p>
                     </div>
+
                     <div className="flex-gap-md">
                       <div className="chip chip-neutral" style={{ fontFamily: "monospace", fontSize: 11 }}>
                         MERKLE-VALID

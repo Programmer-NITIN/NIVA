@@ -15,7 +15,10 @@ gate_service = ResponsibleGateService()
 @router.get("/customers")
 async def list_customers():
     """List all customers with summary health metrics (bank view)."""
+    from app.services.twin import _uploaded_twins
     personas = ["rajesh_sharma", "anita_desai", "vikram_patel"]
+    # Add any uploaded users
+    personas.extend(list(_uploaded_twins.keys()))
     customers = []
 
     for pid in personas:

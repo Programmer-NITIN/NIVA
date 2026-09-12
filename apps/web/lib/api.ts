@@ -127,6 +127,26 @@ export async function getJourneyState(personaId: string) {
   return fetchAPI<any>(`/journey/state/${personaId}`);
 }
 
+export async function uploadBankStatement(file: File, personaId = "custom_user", fullName = "Kailash Verma", phone = "+91 98980 12345") {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("persona_id", personaId);
+  formData.append("full_name", fullName);
+  formData.append("phone", phone);
+
+  const res = await fetch(`${API_BASE}/api/v1/journey/upload-statement`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `Upload error: ${res.status}`);
+  }
+
+  return res.json();
+}
+
 // ── ML Intelligence & Explainability Endpoints ───────────────
 
 export async function getMLStressPrediction(personaId: string) {

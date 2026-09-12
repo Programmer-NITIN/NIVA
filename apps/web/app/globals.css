@@ -929,8 +929,36 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .navbar {
+    height: auto;
+    padding: 8px var(--space-md);
+  }
+
+  .navbar-inner {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   .navbar-tabs {
+    display: flex;
+    width: 100%;
+    order: 3;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px;
+    padding: 4px 0 2px 0;
+  }
+
+  .navbar-tabs::-webkit-scrollbar {
     display: none;
+  }
+
+  .navbar-tabs a,
+  .navbar-tabs button {
+    font-size: 12px;
+    padding: 5px 12px;
+    flex-shrink: 0;
   }
 
   .page-container {

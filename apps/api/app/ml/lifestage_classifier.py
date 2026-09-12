@@ -76,7 +76,8 @@ class LifeStageClassifier:
         """
         Classifies life stage and returns targeted next-best-actions.
         """
-        X = np.array([[features.get(f, 0.0) for f in LIFESTAGE_FEATURES]])
+        import pandas as pd
+        X = pd.DataFrame([[features.get(f, 0.0) for f in LIFESTAGE_FEATURES]], columns=LIFESTAGE_FEATURES)
         pred_encoded = self.model.predict(X)[0]
         life_stage_name = str(self.encoder.inverse_transform([pred_encoded])[0])
         probabilities = self.model.predict_proba(X)[0]

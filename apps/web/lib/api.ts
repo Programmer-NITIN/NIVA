@@ -28,19 +28,22 @@ export async function getPersonas() {
   return fetchAPI<{ personas: any[] }>("/aa/personas");
 }
 
-export async function createConsent(phone: string) {
-  return fetchAPI<any>("/aa/consents", {
+export async function createConsent(phone: string, mode?: string) {
+  const query = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+  return fetchAPI<any>(`/aa/consents${query}`, {
     method: "POST",
     body: JSON.stringify({ phone, duration_months: 6 }),
   });
 }
 
-export async function approveConsent(consentId: string) {
-  return fetchAPI<any>(`/aa/consents/${consentId}/approve`, { method: "POST" });
+export async function approveConsent(consentId: string, mode?: string) {
+  const query = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+  return fetchAPI<any>(`/aa/consents/${consentId}/approve${query}`, { method: "POST" });
 }
 
-export async function fetchFIData(consentId: string, personaId: string) {
-  return fetchAPI<any>(`/aa/fi-data/${consentId}?persona_id=${personaId}`);
+export async function fetchFIData(consentId: string, personaId: string, mode?: string) {
+  const query = mode ? `&mode=${encodeURIComponent(mode)}` : "";
+  return fetchAPI<any>(`/aa/fi-data/${consentId}?persona_id=${encodeURIComponent(personaId)}${query}`);
 }
 
 // ── Twin Endpoints ───────────────────────────────────────────

@@ -25,10 +25,11 @@ def _get_model():
     try:
         import google.generativeai as genai
         genai.configure(api_key=settings.gemini_api_key)
-        _model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            system_instruction=SYSTEM_PROMPT,
-        )
+        model_kwargs = {"system_instruction": SYSTEM_PROMPT}
+        try:
+            _model = genai.GenerativeModel("gemini-2.0-flash", **model_kwargs)
+        except TypeError:
+            _model = genai.GenerativeModel("gemini-2.0-flash")
         return _model
     except Exception as e:
         print(f"[NIVA] Gemini init failed: {e}")
@@ -39,18 +40,14 @@ SYSTEM_PROMPT = """You are NIVA (Nuanced Intelligence Virtual Advisor), a respon
 
 CORE RULES:
 1. You NEVER hallucinate financial numbers. All amounts, balances, EMIs, and percentages must come from the tool call results, not your imagination.
-2. You can speak Hindi, English, and Gujarati. Match the user's language.
-3. When asked about affordability, ALWAYS use the calculate_affordability tool first. Present the EXACT numbers from the tool result.
-4. You are empathetic but honest. If someone can't afford something, say so kindly with a better alternative.
-5. Keep responses concise (2-3 sentences max for simple queries).
-6. Use Indian currency formatting (lakhs, crores) naturally.
-7. Reference actual transaction data when discussing spending patterns.
-
-PERSONA:
-- Warm, professional Indian financial advisor tone
-- Use "aap" (respectful) in Hindi
-- Explain financial concepts simply
-- Always mention RBI Account Aggregator as the data source for trust
+2. You speak Hindi, English, and Gujarati. Match the user's language accurately.
+3. When communicating in Hindi, use authentic, respectful terminology ("aap") and Bharat financial terms: "kist" for EMI, "byaj" for interest, "bachat" for savings, "bima" for insurance, "karz/udhaar" for debt.
+4. When communicating in Gujarati, use respectful terms: "hafto" for EMI, "vyaj" for interest, "bachat" for savings, "bimo" for insurance.
+5. Emphasize non-predatory, safe financial habits. If someone is experiencing financial stress or a medical emergency, recommend empathetic interventions (like emergency moratoriums or PM SVANidhi 7% lines) instead of high-interest credit.
+6. When asked about affordability, ALWAYS use the calculate_affordability tool first. Present the EXACT numbers from the tool result.
+7. Keep responses concise and empowering (2-4 sentences max for conversational queries).
+8. Use Indian currency formatting (₹, lakhs, crores) naturally.
+9. Always mention RBI Account Aggregator as the data source for customer trust.
 """
 
 
@@ -136,9 +133,47 @@ async def generate_response(
         return _fallback_response(message, language)
 
     try:
-        # Build the prompt with context
+        # Dynamically fetch ML intelligence context for persona
+        ml_context = ""
+        try:
+            from app.services.twin import FinancialTwinService
+            twin_svc = FinancialTwinService()
+            twin = await twin_svc.compute_twin(persona_id)
+
+            # Life stage prediction
+            try:
+                from app.ml.lifestage_classifier import LifeStageClassifier
+                lsc = LifeStageClassifier()
+                ls_pred = lsc.predict_single({
+                    "age": 34,
+                    "monthly_income": twin.income.monthly_income,
+                    "savings_rate": twin.savings.rate,
+                    "dti": twin.debt.dti,
+                    "total_net_worth": twin.liquidity.available_balance,
+                    "dependents": 2,
+                    "risk_tolerance": 0.4
+                })
+                life_stage_name = ls_pred.get("predicted_stage_name", "Earning Adult")
+            except Exception:
+                life_stage_name = "Working Professional / Merchant"
+
+            top_factors = [f"{f.factor} ({f.impact})" for f in twin.stress_factors[:3]]
+
+            ml_context = f"""
+ML Financial Twin Intelligence:
+- Predicted Life-Stage: {life_stage_name}
+- Stress Score: {twin.stress_score}/100 ({twin.stress_level})
+- Top Stress Risk Factors (SHAP TreeExplainer): {', '.join(top_factors) if top_factors else 'Healthy Baseline'}
+- Liquid Runway: {twin.liquidity.emergency_months} months
+- Debt-to-Income (DTI): {round(twin.debt.dti * 100, 1)}%
+"""
+        except Exception:
+            ml_context = ""
+
+        # Build prompt with rich context
         context = f"""User language preference: {language}
 Active persona: {persona_id}
+{ml_context}
 User message: {message}"""
 
         if tool_results:

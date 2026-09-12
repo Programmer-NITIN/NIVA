@@ -27,9 +27,9 @@ def _get_model():
         genai.configure(api_key=settings.gemini_api_key)
         model_kwargs = {"system_instruction": SYSTEM_PROMPT}
         try:
-            _model = genai.GenerativeModel("gemini-2.0-flash", **model_kwargs)
+            _model = genai.GenerativeModel("gemini-3.6-flash", **model_kwargs)
         except TypeError:
-            _model = genai.GenerativeModel("gemini-2.0-flash")
+            _model = genai.GenerativeModel("gemini-3.6-flash")
         return _model
     except Exception as e:
         print(f"[NIVA] Gemini init failed: {e}")

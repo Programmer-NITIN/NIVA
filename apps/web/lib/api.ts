@@ -102,3 +102,28 @@ export async function getActivePersona() {
 export async function switchPersona(personaId: string) {
   return fetchAPI<any>(`/demo/switch/${personaId}`, { method: "POST" });
 }
+
+// ── Journey Endpoints ────────────────────────────────────────
+
+export async function verifyOtp(phone: string, otp: string, personaId: string) {
+  return fetchAPI<any>("/journey/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, otp, persona_id: personaId }),
+  });
+}
+
+export async function getKycDetails(personaId: string) {
+  return fetchAPI<any>(`/journey/kyc/${personaId}`);
+}
+
+export async function submitEmpatheticAction(personaId: string, actionType: string, selectedOption: string) {
+  return fetchAPI<any>("/journey/empathetic-action", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, action_type: actionType, selected_option: selectedOption }),
+  });
+}
+
+export async function getJourneyState(personaId: string) {
+  return fetchAPI<any>(`/journey/state/${personaId}`);
+}
+

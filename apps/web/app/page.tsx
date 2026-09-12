@@ -10,6 +10,13 @@ import {
   getScoreColor,
   formatRelativeDate,
 } from "@/lib/utils";
+import {
+  ShieldIcon,
+  LockIcon,
+  TrendingUpIcon,
+  AlertTriangleIcon,
+  InfoIcon,
+} from "@/components/icons";
 
 type PersonaId = "rajesh_sharma" | "anita_desai" | "vikram_patel";
 
@@ -87,6 +94,7 @@ export default function HomePage() {
           </a>
           <ul className="navbar-tabs">
             <li><a href="/" className="active">Overview</a></li>
+            <li><a href="/journey">Journey</a></li>
             <li><a href="/financial-state">Financial State</a></li>
             <li><a href="/spending">Spending</a></li>
             <li><a href="/ask-niva">Ask NIVA</a></li>
@@ -112,8 +120,9 @@ export default function HomePage() {
           <LoadingSkeleton />
         ) : error ? (
           <div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-            <p className="headline-sm" style={{ color: "var(--niva-critical)" }}>
-              ⚠️ {error}
+            <p className="headline-sm" style={{ color: "var(--niva-critical)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <AlertTriangleIcon size={22} color="var(--niva-critical)" style={{ marginRight: 8 }} />
+              {error}
             </p>
             <p className="body-md text-muted" style={{ marginTop: "0.5rem" }}>
               Make sure the backend is running at localhost:8000
@@ -184,17 +193,19 @@ function HeroSection({ greeting, name, twin }: any) {
         </span>
         <span
           className={`chip ${balanceChange >= 0 ? "chip-positive" : "chip-critical"}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
         >
-          📈 {changeText}
+          <TrendingUpIcon size={14} color={balanceChange >= 0 ? "var(--niva-positive)" : "var(--niva-critical)"} />
+          {changeText}
         </span>
       </div>
       <p className="body-md text-muted" style={{ marginTop: 4 }}>
         Across 2 connected savings reserves. Real-time consent valid until 18 Nov 2026.
       </p>
       <div className="flex-gap-md" style={{ marginTop: 16 }}>
-        <a href="/ask-niva" className="btn btn-primary">💬 Ask NIVA</a>
-        <a href="/ask-niva" className="btn btn-outline">🏠 Simulate Purchase</a>
-        <a href="/consent" className="btn btn-outline">☑️ Inspect Consent</a>
+        <a href="/journey" className="btn btn-primary" style={{ fontSize: 15, padding: '12px 24px' }}>Start Real-World Journey →</a>
+        <a href="/ask-niva" className="btn btn-outline">Ask NIVA</a>
+        <a href="/consent" className="btn btn-outline">Inspect Consent</a>
       </div>
     </section>
   );
@@ -231,7 +242,7 @@ function SentinelAlert({ twin, changes }: any) {
         ))}
       </div>
       <div className="info-banner warning" style={{ marginTop: 16 }}>
-        <span>ℹ️</span>
+        <InfoIcon size={18} color="var(--niva-warning)" style={{ flexShrink: 0 }} />
         <div>
           <strong>Why this matters:</strong> Inflow remains steady at ₹{twin?.income?.monthly_income?.toLocaleString("en-IN")}, but accelerated outflows shorten your liquidity cushion from <strong>2.1 to {twin?.liquidity?.emergency_months} months</strong>.
           <a href="/financial-state" style={{ marginLeft: 8, color: "var(--niva-info)" }}>
@@ -248,7 +259,7 @@ function GateCard({ rec }: any) {
     <div className="card-gate animate-fade-in">
       <div className="flex-between" style={{ marginBottom: 16 }}>
         <div className="flex-gap-sm">
-          <span style={{ fontSize: 20 }}>🛡️</span>
+          <ShieldIcon size={20} color="var(--niva-gate-lime)" />
           <span className="label-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
             AUTONOMOUS SAFETY INTERCEPT
           </span>
@@ -386,17 +397,19 @@ function MonthView({ twin, categories }: any) {
         <div>
           <div className="grid-3" style={{ marginBottom: 20 }}>
             <div>
-              <span className="chip chip-positive" style={{ marginBottom: 4 }}>📥 INFLOW</span>
+              <span className="chip chip-positive" style={{ marginBottom: 4 }}>INFLOW</span>
               <div className="currency-md">₹{income.toLocaleString("en-IN")}</div>
               <div className="body-sm text-muted">Salary</div>
             </div>
             <div>
-              <span className="chip chip-critical" style={{ marginBottom: 4 }}>📤 OUTFLOW</span>
+              <span className="chip chip-critical" style={{ marginBottom: 4 }}>OUTFLOW</span>
               <div className="currency-md">₹{total.toLocaleString("en-IN")}</div>
               <div className="body-sm text-muted">Discretionary</div>
             </div>
             <div>
-              <span className="chip chip-warning" style={{ marginBottom: 4 }}>🔒 FIXED</span>
+              <span className="chip chip-warning" style={{ marginBottom: 4, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <LockIcon size={12} color="var(--niva-warning)" /> FIXED
+              </span>
               <div className="currency-md">₹{essential.toLocaleString("en-IN")}</div>
               <div className="body-sm text-muted">EMIs & Rent</div>
             </div>
@@ -481,7 +494,10 @@ function RecentTransactions({ twin }: any) {
         className="flex-between body-sm text-muted"
         style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--niva-border)" }}
       >
-        <span>🔒 RBI-Regulated Account Aggregator Data • Zero credential storage</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <LockIcon size={14} color="var(--niva-text-muted)" />
+          RBI-Regulated Account Aggregator Data • Zero credential storage
+        </span>
         <span>Revoke Consent anytime</span>
       </div>
     </div>

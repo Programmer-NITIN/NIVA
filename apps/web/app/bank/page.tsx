@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { getBankCustomers, getBankCustomerDetail, getAuditTrail } from "@/lib/api";
 import { formatCurrency, getStressColor, getScoreColor } from "@/lib/utils";
+import {
+  ShieldIcon,
+  LockIcon,
+  BuildingBankIcon,
+  AlertTriangleIcon,
+} from "@/components/icons";
 
 export default function BankPortal() {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -101,7 +107,9 @@ export default function BankPortal() {
                       <div className="chip chip-neutral" style={{ fontFamily: "monospace", fontSize: 11 }}>
                         MERKLE-VALID
                       </div>
-                      <button className="btn btn-outline btn-sm">🔒 Export Audit Hash</button>
+                      <button className="btn btn-outline btn-sm" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <LockIcon size={14} /> Export Audit Hash
+                      </button>
                     </div>
                   </div>
                 </section>
@@ -159,7 +167,7 @@ export default function BankPortal() {
                     }}>
                       <div className="flex-between" style={{ marginBottom: 8 }}>
                         <span className="label-sm" style={{ color: "var(--niva-gate-lime)", fontSize: 10 }}>AUTOMATED GATE VERDICT</span>
-                        <span style={{ fontSize: 18 }}>🛡️</span>
+                        <ShieldIcon size={18} color="var(--niva-gate-lime)" />
                       </div>
                       <div className="chip" style={{ background: "rgba(225,29,72,0.2)", color: "#FCA5A5", fontSize: 10, marginBottom: 8 }}>
                         ✗ HOLD UNSECURED CREDIT
@@ -194,15 +202,16 @@ export default function BankPortal() {
                       {/* Traditional Bureau */}
                       <div className="card-compact" style={{ background: "var(--niva-canvas-subtle)" }}>
                         <div className="flex-gap-sm" style={{ marginBottom: 12 }}>
-                          <span style={{ fontSize: 18 }}>🏛️</span>
+                          <BuildingBankIcon size={18} color="var(--niva-text-secondary)" />
                           <span className="title-md">Traditional Bureau Appraisal</span>
                           <span className="label-lg" style={{ marginLeft: "auto" }}>CIBIL 760</span>
                         </div>
                         <p className="body-md" style={{ marginBottom: 12 }}>
                           Eligible for <strong>₹2,00,000 Instant Personal Loan</strong> @ 13.5% APR based on 36-month pristine repayment history and zero defaults on record.
                         </p>
-                        <div className="info-banner warning" style={{ fontSize: 12, padding: 10 }}>
-                          ⚠️ Bureau reporting lag: Last furnished cycle 38 days ago. Unaware of intra-month cash drawdown.
+                        <div className="info-banner warning" style={{ fontSize: 12, padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                          <AlertTriangleIcon size={16} color="var(--niva-warning)" style={{ flexShrink: 0 }} />
+                          <span>Bureau reporting lag: Last furnished cycle 38 days ago. Unaware of intra-month cash drawdown.</span>
                         </div>
                         <div className="grid-3" style={{ marginTop: 12, gap: 8 }}>
                           <div className="text-center"><div className="label-sm text-muted">DPD Past 24M</div><div className="title-lg">0</div></div>

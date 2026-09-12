@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { getFinancialTwin } from "@/lib/api";
 import { getScoreColor, getStressColor, formatCurrency, getCategoryIcon } from "@/lib/utils";
+import { TrendingUpIcon, TrendingDownIcon } from "@/components/icons";
 
 type PersonaId = "rajesh_sharma" | "anita_desai" | "vikram_patel";
 
@@ -203,7 +204,11 @@ export default function FinancialStatePage() {
                 <div className="grid-2" style={{ gap: 12 }}>
                   {changes.map((c: any, i: number) => (
                     <div key={i} className={`info-banner ${c.severity === "critical" ? "critical" : c.severity === "warning" ? "warning" : "info"}`}>
-                      <span>{c.direction === "up" ? "📈" : "📉"}</span>
+                      {c.direction === "up" ? (
+                        <TrendingUpIcon size={18} color={c.severity === "critical" ? "var(--niva-critical)" : "var(--niva-warning)"} style={{ flexShrink: 0 }} />
+                      ) : (
+                        <TrendingDownIcon size={18} color="var(--niva-positive)" style={{ flexShrink: 0 }} />
+                      )}
                       <div>
                         <strong>{c.metric}</strong>
                         <p className="body-sm" style={{ marginTop: 4 }}>{c.description}</p>

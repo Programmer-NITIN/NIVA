@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { checkAffordability, sendChatMessage } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { MicIcon } from "@/components/icons";
 
 type PersonaId = "rajesh_sharma" | "anita_desai" | "vikram_patel";
 
@@ -314,7 +315,11 @@ export default function AskNivaPage() {
               }}
               title="Voice input"
             >
-              {isListening ? "●" : "🎙️"}
+              {isListening ? (
+                <span style={{ color: "#fff", fontWeight: "bold", fontSize: 14 }}>●</span>
+              ) : (
+                <MicIcon size={18} color="var(--niva-text-secondary)" />
+              )}
             </button>
 
             <input

@@ -2,6 +2,14 @@
 
 import { useState } from "react";
 import { createConsent, approveConsent } from "@/lib/api";
+import {
+  ShieldIcon,
+  LockIcon,
+  CheckCircleIcon,
+  BuildingBankIcon,
+  BrainIcon,
+  IdCardIcon,
+} from "@/components/icons";
 
 export default function ConsentPage() {
   const [consentId, setConsentId] = useState<string | null>(null);
@@ -64,7 +72,7 @@ export default function ConsentPage() {
 
           {/* RBI Compliance Info */}
           <div className="info-banner info">
-            <span>🛡️</span>
+            <ShieldIcon size={20} color="var(--niva-electric-lime)" />
             <div>
               <strong>RBI Account Aggregator (AA) Framework</strong>
               <p className="body-sm" style={{ marginTop: 4 }}>
@@ -134,7 +142,7 @@ export default function ConsentPage() {
 
               {status === "none" ? (
                 <div style={{ textAlign: "center", padding: "3rem 0" }}>
-                  <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🔐</div>
+                  <div style={{ marginBottom: 16, opacity: 0.4 }}><LockIcon size={48} color="var(--niva-text-muted)" /></div>
                   <p className="body-lg text-muted">No active consent request</p>
                   <p className="body-sm text-muted" style={{ marginTop: 4 }}>
                     Create a consent request to begin the AA flow
@@ -178,7 +186,7 @@ export default function ConsentPage() {
 
                   {status === "approved" && (
                     <div className="info-banner info">
-                      <span>✅</span>
+                      <CheckCircleIcon size={22} color="var(--niva-positive)" />
                       <div>
                         <strong>Consent Approved!</strong>
                         <p className="body-sm" style={{ marginTop: 4 }}>
@@ -200,13 +208,15 @@ export default function ConsentPage() {
             </h2>
             <div className="grid-4" style={{ gap: 12 }}>
               {[
-                { icon: "🏦", label: "FIP", desc: "Financial Information Provider (HDFC, SBI)", badge: "Data Source" },
-                { icon: "🔗", label: "AA", desc: "Account Aggregator (ReBIT Spec)", badge: "Consent Manager" },
-                { icon: "🏢", label: "FIU", desc: "Financial Information User (NIVA)", badge: "Data Consumer" },
-                { icon: "👤", label: "Customer", desc: "Data Owner (You)", badge: "Consent Owner" },
+                { Icon: BuildingBankIcon, label: "FIP", desc: "Financial Information Provider (HDFC, SBI)", badge: "Data Source" },
+                { Icon: LockIcon, label: "AA", desc: "Account Aggregator (ReBIT Spec)", badge: "Consent Manager" },
+                { Icon: BrainIcon, label: "FIU", desc: "Financial Information User (NIVA)", badge: "Data Consumer" },
+                { Icon: IdCardIcon, label: "Customer", desc: "Data Owner (You)", badge: "Consent Owner" },
               ].map((node, i) => (
                 <div key={i} className="card-compact" style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>{node.icon}</div>
+                  <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}>
+                    <node.Icon size={32} color="var(--niva-electric-lime)" />
+                  </div>
                   <div className="title-md">{node.label}</div>
                   <div className="chip chip-neutral" style={{ marginTop: 4, marginBottom: 8, fontSize: 10 }}>
                     {node.badge}

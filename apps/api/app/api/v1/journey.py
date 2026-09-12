@@ -1,0 +1,208 @@
+"""
+NIVA — Real-World End-to-End Journey API Routes.
+
+Implements the 6-stage lifecycle demanded by the Problem Statement:
+1. Vernacular Onboarding & Auth (OTP + DigiLocker e-KYC)
+2. RBI Account Aggregator Consent (DPDP 2023)
+3. AI Financial Twin & Anomaly Engine
+4. The Responsible Gate (Policy Engine)
+5. Hyper-Personalized Customer Experience (Empathetic Relief)
+6. Bank Risk & Underwriting Portal Bridge
+"""
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+from app.services.twin import FinancialTwinService
+from app.services.gate import ResponsibleGateService
+
+router = APIRouter()
+twin_service = FinancialTwinService()
+gate_service = ResponsibleGateService()
+
+# Simulated DigiLocker e-KYC Registry
+PERSONA_KYC = {
+    "rajesh_sharma": {
+        "persona_id": "rajesh_sharma",
+        "full_name": "Rajesh Kumar Sharma",
+        "phone": "+91 98765 43210",
+        "masked_aadhaar": "XXXX-XXXX-8921",
+        "pan": "ABCPS8921K",
+        "dob": "1984-08-14",
+        "gender": "Male",
+        "address": "Shop #14, Main Cloth Market, Surat, Gujarat - 395003",
+        "kyc_source": "DigiLocker / UIDAI Official Verification",
+        "verification_timestamp": "2026-09-12T01:30:00Z",
+        "occupation": "Kirana & Retail Store Owner",
+        "bank_linked": "State Bank of India (A/C ending in 4109)",
+        "narrative": "Experienced unexpected hospital bill (₹45,000) in July. High EMI burden (DTI 44%). Needs debt relief, not high-interest loans.",
+        "empathetic_offer": {
+            "title": "1-Month EMI Moratorium & Interest Waiver",
+            "type": "moratorium",
+            "description": "Pause your SBI Business Loan EMI for 30 days with zero penalty charges or credit score impact.",
+            "relief_amount": "₹12,450/month",
+        }
+    },
+    "anita_desai": {
+        "persona_id": "anita_desai",
+        "full_name": "Anita Suresh Desai",
+        "phone": "+91 98234 56789",
+        "masked_aadhaar": "XXXX-XXXX-4512",
+        "pan": "AAAPD4512M",
+        "dob": "1992-11-22",
+        "gender": "Female",
+        "address": "Flat 402, Green Glen Heights, Bellandur, Bengaluru - 560103",
+        "kyc_source": "DigiLocker / UIDAI Official Verification",
+        "verification_timestamp": "2026-09-12T01:35:00Z",
+        "occupation": "Senior Software Quality Engineer",
+        "bank_linked": "HDFC Bank (A/C ending in 8832)",
+        "narrative": "Healthy cash reserve, 38% monthly savings rate, 5.2 months emergency buffer. Ideal candidate for wealth creation.",
+        "empathetic_offer": {
+            "title": "Smart Wealth SIP & Health Guard",
+            "type": "sip",
+            "description": "Start an automated ₹2,500/month index fund SIP and lock ₹10L Super Top-up Health Insurance.",
+            "relief_amount": "12.4% historical return",
+        }
+    },
+    "vikram_patel": {
+        "persona_id": "vikram_patel",
+        "full_name": "Vikram R. Patel",
+        "phone": "+91 97123 88990",
+        "masked_aadhaar": "XXXX-XXXX-7734",
+        "pan": "XYZPP7734F",
+        "dob": "1996-03-05",
+        "gender": "Male",
+        "address": "Sector 22, Near Bus Stand, Gandhinagar, Gujarat - 382022",
+        "kyc_source": "DigiLocker / UIDAI Official Verification",
+        "verification_timestamp": "2026-09-12T01:40:00Z",
+        "occupation": "Delivery & Mobility Partner",
+        "bank_linked": "Bank of Baroda (A/C ending in 1993)",
+        "narrative": "Severe stress (81/100). Multiple credit card debts, bounced auto-debit fees, erratic gig earnings. Personal loans must be blocked.",
+        "empathetic_offer": {
+            "title": "Debt Restructuring & Fee Waiver Program",
+            "type": "restructure",
+            "description": "Consolidate 3 active loans into a single 36-month tenure, reducing monthly EMI by 42% and waiving past ECS bounce fees.",
+            "relief_amount": "EMI reduced from ₹14,200 to ₹8,200",
+        }
+    }
+}
+
+# In-memory store for journey-accepted empathetic actions
+_accepted_relief_actions = []
+
+
+class VerifyOtpRequest(BaseModel):
+    phone: str
+    otp: str
+    persona_id: str = "rajesh_sharma"
+
+
+class EmpatheticActionRequest(BaseModel):
+    persona_id: str
+    action_type: str
+    selected_option: str
+    notes: Optional[str] = None
+
+
+@router.post("/verify-otp")
+async def verify_otp(req: VerifyOtpRequest):
+    """
+    Stage 1: Verify mobile OTP for Vernacular Onboarding.
+    Accepts 6-digit OTP (e.g. 123456 or any 6 digits for demo).
+    """
+    if len(req.otp.strip()) != 6:
+        raise HTTPException(status_code=400, detail="OTP must be exactly 6 digits.")
+
+    kyc = PERSONA_KYC.get(req.persona_id, PERSONA_KYC["rajesh_sharma"])
+    return {
+        "status": "success",
+        "verified": True,
+        "message": "OTP successfully verified via SMS Gateway.",
+        "phone": req.phone,
+        "persona_id": req.persona_id,
+        "kyc_profile": kyc,
+    }
+
+
+@router.get("/kyc/{persona_id}")
+async def get_kyc_details(persona_id: str):
+    """
+    Stage 1: Retrieve verified DigiLocker / Aadhaar identity details.
+    """
+    if persona_id not in PERSONA_KYC:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found.")
+    return PERSONA_KYC[persona_id]
+
+
+@router.post("/empathetic-action")
+async def record_empathetic_action(req: EmpatheticActionRequest):
+    """
+    Stage 5: Customer accepts proactive empathetic intervention (e.g. EMI moratorium).
+    Automatically syncs to the Bank Underwriting Portal audit log!
+    """
+    entry = {
+        "id": f"RELIEF-{len(_accepted_relief_actions) + 1:04d}",
+        "persona_id": req.persona_id,
+        "action_type": req.action_type,
+        "selected_option": req.selected_option,
+        "notes": req.notes or "Applied via NIVA Customer Empathetic Journey",
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "APPROVED_BY_POLICY",
+    }
+    _accepted_relief_actions.append(entry)
+
+    return {
+        "status": "recorded",
+        "relief_id": entry["id"],
+        "message": "Empathetic relief activated successfully. Bank underwriter notified.",
+        "details": entry,
+    }
+
+
+@router.get("/state/{persona_id}")
+async def get_journey_state(persona_id: str):
+    """
+    Fetch comprehensive, verified state across all 6 stages for a persona.
+    """
+    if persona_id not in PERSONA_KYC:
+        persona_id = "rajesh_sharma"
+
+    kyc = PERSONA_KYC[persona_id]
+    twin = await twin_service.compute_twin(persona_id)
+    recs_response = await gate_service.evaluate_all_products(persona_id)
+    recs = recs_response.recommendations
+
+    # Filter suppressed loans vs approved products
+    suppressed = [r for r in recs if r.decision == "SUPPRESS"]
+    approved = [r for r in recs if r.decision == "RECOMMEND"]
+
+    return {
+        "persona_id": persona_id,
+        "kyc": kyc,
+        "financial_twin": {
+            "health_score": twin.health_score,
+            "stress_score": twin.stress_score,
+            "stress_level": twin.stress_level,
+            "anomaly_score": twin.anomaly_score,
+            "monthly_income": twin.income.monthly_income,
+            "total_expenses": twin.expenses.total,
+            "savings_rate": twin.savings.rate,
+            "emergency_months": twin.liquidity.emergency_months,
+            "dti_ratio": twin.debt.emi_to_income,
+            "stress_factors": [f.model_dump() for f in twin.stress_factors],
+            "recent_changes": [c.model_dump() for c in twin.changes[:4]],
+            "spending_by_category": [c.model_dump() for c in twin.spending_by_category[:6]],
+        },
+        "responsible_gate": {
+            "total_products": len(recs),
+            "suppressed_count": len(suppressed),
+            "approved_count": len(approved),
+            "suppressed": [s.model_dump() for s in suppressed],
+            "approved": [a.model_dump() for a in approved],
+        },
+        "empathetic_offer": kyc["empathetic_offer"],
+        "relief_history": [a for a in _accepted_relief_actions if a["persona_id"] == persona_id],
+    }
+

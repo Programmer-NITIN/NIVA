@@ -118,4 +118,20 @@ async def get_audit_trail(persona_id: str):
         ),
     ]
 
+    # Include any dynamic empathetic relief actions accepted by customer in journey
+    from app.api.v1.journey import _accepted_relief_actions
+    for act in _accepted_relief_actions:
+        if act.get("persona_id") == persona_id:
+            entries.insert(0, AuditLogEntry(
+                id=act["id"],
+                timestamp=datetime.fromisoformat(act["timestamp"]),
+                actor="Customer via Empathetic Relief Modal",
+                action=f"EMPATHETIC RELIEF GRANTED: {act['selected_option']}",
+                resource_type="loan_restructuring",
+                resource_id=act["id"],
+                result="ACTIVE / NON-PUNITIVE",
+                policy_id="POL-RELIEF-01",
+                integrity_hash=hashlib.sha256(f"relief-{act['id']}".encode()).hexdigest()[:12],
+            ))
+
     return {"persona_id": persona_id, "audit_trail": entries}

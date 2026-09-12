@@ -217,7 +217,8 @@ export default function CustomerDashboardPage() {
       setRecommendations(recsRes);
       setSpendingData(spendRes);
       setLifeStage(stageRes);
-      if (anomRes?.flagged_transactions) setAnomalies(anomRes.flagged_transactions);
+      const rawAnomalies = anomRes?.flagged_transactions || spendRes?.anomalies_detected || [];
+      setAnomalies(Array.isArray(rawAnomalies) ? rawAnomalies : []);
       if (potsRes?.pots) setPots(potsRes.pots);
       if (subsRes) setSubs(subsRes);
       if (shapRes?.ml_prediction) setShap(shapRes.ml_prediction);
@@ -701,7 +702,7 @@ export default function CustomerDashboardPage() {
                 <div className="card" style={{ textAlign: "center" }}>
                   <div className="label-sm text-muted">ESSENTIAL BURN RATE</div>
                   <div style={{ fontSize: 32, fontWeight: 800, color: "var(--niva-obsidian)", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-                    ₹{(spendingData?.monthly_essential || twin?.expenses?.essential || session.essentialExpenses).toLocaleString("en-IN")}
+                    ₹{(Number(spendingData?.monthly_essential || twin?.expenses?.essential || session.essentialExpenses) || 0).toLocaleString("en-IN")}
                   </div>
                   <div className="body-sm text-muted" style={{ marginTop: 4 }}>Rent, Food, Healthcare, Utilities</div>
                 </div>
@@ -709,7 +710,7 @@ export default function CustomerDashboardPage() {
                 <div className="card" style={{ textAlign: "center" }}>
                   <div className="label-sm text-muted">DISCRETIONARY SPEND</div>
                   <div style={{ fontSize: 32, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-                    ₹{(spendingData?.monthly_discretionary || twin?.expenses?.discretionary || 9670).toLocaleString("en-IN")}
+                    ₹{(Number(spendingData?.monthly_discretionary || twin?.expenses?.discretionary || 9670) || 0).toLocaleString("en-IN")}
                   </div>
                   <div className="body-sm text-muted" style={{ marginTop: 4 }}>Shopping, Dining, Leisure</div>
                 </div>
@@ -717,7 +718,7 @@ export default function CustomerDashboardPage() {
                 <div className="card" style={{ textAlign: "center" }}>
                   <div className="label-sm text-muted">ESSENTIAL / TOTAL RATIO</div>
                   <div style={{ fontSize: 32, fontWeight: 800, color: "var(--niva-positive)", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-                    {spendingData?.essential_ratio || twin?.expenses?.essential_ratio || 71.1}%
+                    {Math.round(Number(spendingData?.essential_ratio ?? twin?.expenses?.essential_ratio ?? 71.1))}%
                   </div>
                   <div className="body-sm text-muted" style={{ marginTop: 4 }}>Safe RBI Envelope &lt; 75%</div>
                 </div>
@@ -731,7 +732,8 @@ export default function CustomerDashboardPage() {
                     const catName = typeof c.category === "string" ? c.category.toUpperCase() : "GENERAL";
                     const amt = Number(c.amount || 0);
                     const pct = Number(c.percentage || 10);
-                    const isSpike = Number(c.trend || 0) > 30;
+                    const trendVal = Number(c.trend ?? c.trend_pct ?? 0);
+                    const isSpike = trendVal > 30;
                     return (
                       <div key={i} style={{ padding: "10px 14px", background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
                         <div className="flex-between" style={{ marginBottom: 6 }}>
@@ -744,7 +746,7 @@ export default function CustomerDashboardPage() {
                             )}
                             {isSpike && (
                               <span style={{ fontSize: 10, padding: "1px 6px", background: "var(--niva-warning-bg)", color: "var(--niva-warning)", borderRadius: 4, fontWeight: 700 }}>
-                                Spike (+{Math.round(c.trend)}%)
+                                Spike (+{Math.round(trendVal)}%)
                               </span>
                             )}
                           </div>
@@ -783,36 +785,65 @@ export default function CustomerDashboardPage() {
                   </span>
                 </div>
                 <div className="stack-sm">
-                  {(anomalies.length > 0 ? anomalies : [
-                    { transaction_id: "TXN_MED_081", amount: 38500, category: "medical", description: "Apollo Hospital ICU Deposit (Sudden 4.8x Outlier)", is_anomaly: true, z_score: 4.8 },
-                    { transaction_id: "TXN_SHOP_112", amount: 14500, category: "shopping", description: "Late-night Electronics E-Commerce Outlier", is_anomaly: true, z_score: 2.9 }
-                  ]).map((anom: any, idx: number) => (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: "12px 16px",
-                        borderRadius: "var(--radius-md)",
-                        background: "var(--niva-warning-bg)",
-                        border: "1px solid rgba(217,119,6,0.25)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 12,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-warning)" }}>
-                          ⚠️ {anom.description || `Unusual Transaction in ${anom.category}`}
+                  {anomalies.length > 0 ? (
+                    anomalies.map((anom: any, idx: number) => {
+                      const amt = Number(anom.amount) || 0;
+                      const cat = anom.category ? String(anom.category).toUpperCase() : "SPENDING";
+                      const desc = anom.description || anom.narration || anom.merchant_name || `Unusual Transaction in ${cat}`;
+                      const zScore = anom.z_score !== undefined && anom.z_score !== null ? `${Number(anom.z_score).toFixed(1)}σ Outlier` : "Flagged by Isolation Forest";
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: "12px 16px",
+                            borderRadius: "var(--radius-md)",
+                            background: "var(--niva-warning-bg)",
+                            border: "1px solid rgba(217,119,6,0.25)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-warning)" }}>
+                              ⚠️ {desc}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
+                              ID: {anom.transaction_id} • Category: {cat} • Dynamic Anomaly Score: {zScore}
+                              {anom.transaction_date && ` • ${anom.transaction_date}`}
+                            </div>
+                          </div>
+                          <div style={{ fontWeight: 800, fontSize: 16, color: "var(--niva-obsidian)", fontVariantNumeric: "tabular-nums" }}>
+                            ₹{amt.toLocaleString("en-IN")}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
-                          ID: {anom.transaction_id} • Dynamic Anomaly Score: {anom.z_score ? `${anom.z_score}σ Outlier` : "Flagged by Isolation Forest"}
+                      );
+                    })
+                  ) : (
+                    <div style={{
+                      padding: "16px 20px",
+                      borderRadius: "var(--radius-md)",
+                      background: "rgba(142,242,68,0.08)",
+                      border: "1px solid rgba(22,51,0,0.15)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontSize: 24 }}>🛡️</span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-deep-forest)" }}>
+                            All Transactions In-Envelope — Zero Statistical Anomalies
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
+                            Isolation Forest and Dynamic Z-Score verified all debit transactions conform to your baseline spending envelopes.
+                          </div>
                         </div>
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: "var(--niva-obsidian)" }}>
-                        ₹{Number(anom.amount).toLocaleString("en-IN")}
-                      </div>
+                      <span className="chip chip-positive" style={{ fontSize: 11 }}>100% In-Envelope</span>
                     </div>
-                  ))}
+                  )}
                 </div>
               </section>
 

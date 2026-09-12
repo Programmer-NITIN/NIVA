@@ -7,6 +7,7 @@ Life-Stage classification, and Responsible NBA recommendations.
 from collections import Counter
 from math import log2
 from typing import Any, Dict, List
+import numpy as np
 from fastapi import APIRouter, HTTPException
 
 from app.ml.anomaly_detector import TransactionAnomalyDetector
@@ -135,18 +136,52 @@ async def detect_anomalies(persona_id: str):
         fi_data = await aa_provider.fetch_fi_data(consent_id="CNST-DEMO", persona_id=persona_id)
         txns = fi_data.transactions or []
 
+        # Filter debit transactions for spending anomaly detection (exclude salary/income credits)
+        debit_txns = [t for t in txns if str(getattr(t, "type", "DEBIT")).upper() == "DEBIT"]
+        if not debit_txns and txns:
+            debit_txns = txns
+
+        # Calculate category statistics (mean & standard deviation)
+        cat_amounts: Dict[str, List[float]] = {}
+        for t in debit_txns:
+            c = getattr(t, "category", "general")
+            cat_amounts.setdefault(c, []).append(float(getattr(t, "amount", 0.0)))
+
+        cat_stats: Dict[str, Any] = {}
+        for c, vals in cat_amounts.items():
+            mean_val = float(np.mean(vals))
+            std_val = float(np.std(vals)) if len(vals) > 1 else max(mean_val * 0.25, 100.0)
+            cat_stats[c] = (mean_val, max(std_val, mean_val * 0.2, 50.0))
+
+        overall_vals = [a for vals in cat_amounts.values() for a in vals]
+        overall_mean = float(np.mean(overall_vals)) if overall_vals else 2000.0
+        overall_std = float(np.std(overall_vals)) if len(overall_vals) > 1 else 1000.0
+
         formatted_txns = []
-        for i, t in enumerate(txns):
-            hr = t.transaction_date.hour if hasattr(t, "transaction_date") and t.transaction_date else 14
-            txn_id = getattr(t, "txn_id", None) or f"TXN_{persona_id}_{i:04d}"
+        for i, t in enumerate(debit_txns):
+            dt = getattr(t, "transaction_date", None)
+            hr = dt.hour if dt and hasattr(dt, "hour") else 14
+            dt_str = dt.strftime("%d %b %Y, %I:%M %p") if dt and hasattr(dt, "strftime") else "Recent"
+            txn_id = getattr(t, "id", None) or getattr(t, "txn_id", None) or f"TXN_{persona_id}_{i:04d}"
+            cat = str(getattr(t, "category", "general"))
+            mean_for_cat, std_for_cat = cat_stats.get(cat, (overall_mean, overall_std))
+            narrative = getattr(t, "narration", "") or getattr(t, "description", "") or ""
+            merchant = getattr(t, "merchant_name", "") or ""
+
             formatted_txns.append({
                 "transaction_id": str(txn_id),
                 "amount": float(getattr(t, "amount", 0.0)),
-                "category": getattr(t, "category", "general"),
+                "category": cat,
+                "merchant_name": merchant,
+                "narration": narrative,
+                "description": narrative or merchant or f"{cat.title()} payment",
                 "transaction_hour": hr,
+                "transaction_date": dt_str,
                 "velocity_1h": 1,
-                "is_new_beneficiary": "TRANSFER" in str(getattr(t, "narrative", "")).upper(),
-                "avg_amount_30d": 1200.0,
+                "is_new_beneficiary": "TRANSFER" in str(narrative).upper(),
+                "avg_amount_30d": mean_for_cat,
+                "category_std": std_for_cat,
+                "type": "DEBIT",
             })
 
         anomaly_results = anomaly_detector.detect(formatted_txns)
@@ -157,7 +192,7 @@ async def detect_anomalies(persona_id: str):
             "total_transactions_scanned": len(formatted_txns),
             "anomalies_detected_count": len(flagged),
             "flagged_transactions": flagged,
-            "all_results": anomaly_results[:15],  # Preview top 15
+            "all_results": anomaly_results[:15],
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

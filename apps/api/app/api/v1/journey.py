@@ -194,14 +194,17 @@ async def upload_bank_statement(
     persona_id: str = Form("custom_user"),
     full_name: str = Form("Kailash Verma"),
     phone: str = Form("+91 98980 12345"),
+    password: str = Form(""),
 ):
     """
-    Parse an uploaded real bank statement (CSV, Excel .xlsx, or text)
+    Parse an uploaded real bank statement (CSV, Excel .xlsx, PDF)
     and compute live Financial Digital Twin + Responsible Gate telemetry.
+    PDF statements may be password-protected (e.g., first 4 chars of name + DOB).
     """
     try:
         content = await file.read()
-        fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv")
+        pdf_password = password if password else None
+        fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv", password=pdf_password)
         
         # Register custom KYC entry
         PERSONA_KYC[persona_id] = {

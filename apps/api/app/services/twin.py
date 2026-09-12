@@ -9,6 +9,7 @@ All calculations are deterministic (no LLM) — zero hallucination arithmetic.
 from datetime import datetime, timedelta
 from collections import defaultdict
 from app.providers.aa.mock_rebit import RebitMockAAProvider
+from app.services.statement_parser import BankStatementParser
 from app.schemas.financial import (
     FinancialTwinResponse, IncomeMetrics, ExpenseMetrics, SavingsMetrics,
     DebtMetrics, LiquidityMetrics, SpendingCategory, ChangeSignal,
@@ -16,6 +17,10 @@ from app.schemas.financial import (
 )
 
 aa_provider = RebitMockAAProvider()
+
+# In-memory store for custom uploaded statements
+_uploaded_twins: dict[str, FinancialTwinResponse] = {}
+_uploaded_statements: dict[str, Any] = {}
 
 # Categories considered essential vs. discretionary
 ESSENTIAL_CATEGORIES = {"rent", "emi", "utilities", "groceries", "health", "education", "insurance", "family_support"}
@@ -26,14 +31,28 @@ class FinancialTwinService:
     """Computes the Financial Digital Twin from raw transaction data."""
 
     async def compute_twin(self, persona_id: str) -> FinancialTwinResponse:
-        """Build the complete financial twin for a persona."""
+        """Build the complete financial twin for a persona or uploaded statement."""
+        if persona_id in _uploaded_twins:
+            return _uploaded_twins[persona_id]
+
         # Fetch raw data
         fi_data = await aa_provider.fetch_fi_data(consent_id="CNST-DEMO", persona_id=persona_id)
         txns = fi_data.transactions
         persona = aa_provider.get_persona(persona_id)
+        persona_name = persona.get("profile", {}).get("name", persona_id)
 
+        return self._build_twin_from_txns(persona_id, persona_name, fi_data, txns)
+
+    def register_uploaded_statement(self, user_id: str, fi_data: Any, user_name: str = "Uploaded Bank Statement") -> FinancialTwinResponse:
+        """Process an uploaded bank statement and store the resulting twin."""
+        twin = self._build_twin_from_txns(user_id, user_name, fi_data, fi_data.transactions)
+        _uploaded_twins[user_id] = twin
+        _uploaded_statements[user_id] = fi_data
+        return twin
+
+    def _build_twin_from_txns(self, user_id: str, display_name: str, fi_data: Any, txns: list) -> FinancialTwinResponse:
         if not txns:
-            raise ValueError(f"No transaction data for persona {persona_id}")
+            raise ValueError(f"No transaction data for {user_id}")
 
         # Split into recent (30d) and baseline (90d)
         now = max(t.transaction_date for t in txns)
@@ -42,6 +61,8 @@ class FinancialTwinService:
 
         recent_txns = [t for t in txns if t.transaction_date >= recent_start]
         baseline_txns = [t for t in txns if baseline_start <= t.transaction_date < recent_start]
+        if not baseline_txns:
+            baseline_txns = recent_txns
 
         # === Income Metrics ===
         income = self._compute_income(txns, recent_txns)
@@ -77,8 +98,8 @@ class FinancialTwinService:
         changes = self._compute_changes(recent_txns, baseline_txns, income.monthly_income)
 
         return FinancialTwinResponse(
-            user_id=persona_id,
-            persona_id=persona.get("profile", {}).get("name", persona_id),
+            user_id=user_id,
+            persona_id=display_name,
             income=income,
             expenses=expenses,
             savings=savings,

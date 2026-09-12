@@ -101,7 +101,7 @@ async def predict_stress(persona_id: str):
         explanation = stress_explainer.explain(features)
 
         # Baseline comparison with existing rule-based system
-        rule_based_stress = any(sf.severity == "high" for sf in twin.stress_factors)
+        rule_based_stress = twin.stress_level in ["high", "critical"] or twin.stress_score >= 45
 
         return {
             "persona_id": persona_id,
@@ -136,10 +136,10 @@ async def detect_anomalies(persona_id: str):
         txns = fi_data.transactions or []
 
         formatted_txns = []
-        for t in txns:
+        for i, t in enumerate(txns):
             hr = t.transaction_date.hour if hasattr(t, "transaction_date") and t.transaction_date else 14
             formatted_txns.append({
-                "transaction_id": getattr(t, "txn_id", str(hash(t))),
+                "transaction_id": getattr(t, "txn_id", f"TXN_{persona_id}_{i:04d}"),
                 "amount": float(getattr(t, "amount", 0.0)),
                 "category": getattr(t, "category", "general"),
                 "transaction_hour": hr,

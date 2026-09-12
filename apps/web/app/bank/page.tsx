@@ -887,6 +887,22 @@ export default function BankPortal() {
           </div>
         </div>
       </footer>
+
+      {/* Bank — Mobile Bottom Nav (desktop hidden via CSS) */}
+      <nav className="bottom-nav" aria-label="Bank sections">
+        {[
+          {id:"portfolio", label:"Portfolio", icon: BuildingBankIcon},
+          {id:"customer360", label:"360", icon: ShieldIcon},
+          {id:"gateAudit", label:"Gate", icon: CheckCircleIcon},
+          {id:"rebit", label:"ReBIT", icon: LockIcon},
+          {id:"relief", label:"Relief", icon: SparklesIcon},
+        ].map(({id,label,icon:Icon})=>(
+          <button key={id} className={`bottom-nav-item ${activeTab===id?"active":""}`} onClick={()=>{ setActiveTab(id as any); window.scrollTo({top:0, behavior:"smooth"}); }} aria-current={activeTab===id?"page":undefined}>
+            <Icon size={18} color={activeTab===id?"var(--niva-deep-forest)":"var(--niva-text-muted)"} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -27,6 +27,7 @@ import {
   AlertTriangleIcon,
   FileTextIcon,
   BuildingBankIcon,
+  TrendingDownIcon,
 } from "@/components/icons";
 
 type Language = "en" | "hi" | "gu";
@@ -311,6 +312,9 @@ export default function CustomerDashboardPage() {
             <li><button className={activeTab === "schemes" ? "active" : ""} onClick={() => setActiveTab("schemes")}>Schemes</button></li>
             <li><button className={activeTab === "copilot" ? "active" : ""} onClick={() => setActiveTab("copilot")}>Ask NIVA</button></li>
           </ul>
+
+          {/* Mobile: keep navbar brand + language, desktop tabs hidden via CSS; bottom nav handles navigation */}
+          <div className="bottom-nav-spacer" style={{display:"none"}} />
 
           <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {/* Language Selector */}
@@ -1266,6 +1270,25 @@ export default function CustomerDashboardPage() {
           </div>
         </div>
       </footer>
+
+      {/* ── Mobile Bottom Nav (Wise-style: icons + labels) — desktop hidden via CSS ── */}
+      <nav className="bottom-nav" aria-label="Primary">
+        {[
+          {id:"twin", label:"Twin", icon: ShieldIcon},
+          {id:"pots", label:"Pots", icon: BuildingBankIcon},
+          {id:"afford", label:"Afford", icon: TrendingUpIcon},
+          {id:"spending", label:"Spend", icon: FileTextIcon},
+          {id:"whatif", label:"What-If", icon: TrendingDownIcon},
+          {id:"schemes", label:"Schemes", icon: CheckCircleIcon},
+          {id:"subs", label:"Subs", icon: AlertTriangleIcon},
+          {id:"copilot", label:"Ask NIVA", icon: BrainIcon},
+        ].map(({id,label,icon:Icon})=>(
+          <button key={id} className={`bottom-nav-item ${activeTab===id?"active":""}`} onClick={()=>{ setActiveTab(id as any); window.scrollTo({top:0, behavior:"smooth"}); }} aria-current={activeTab===id?"page":undefined}>
+            <Icon size={18} color={activeTab===id?"var(--niva-deep-forest)":"var(--niva-text-muted)"} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

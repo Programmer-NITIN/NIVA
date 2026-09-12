@@ -112,11 +112,37 @@ async def verify_otp(req: VerifyOtpRequest):
     """
     Stage 1: Verify mobile OTP for Vernacular Onboarding.
     Accepts 6-digit OTP (e.g. 123456 or any 6 digits for demo).
+    Supports both known personas and new users with any phone number.
     """
     if len(req.otp.strip()) != 6:
         raise HTTPException(status_code=400, detail="OTP must be exactly 6 digits.")
 
-    kyc = PERSONA_KYC.get(req.persona_id, PERSONA_KYC["rajesh_sharma"])
+    kyc = PERSONA_KYC.get(req.persona_id)
+    if not kyc:
+        # Generate a generic KYC profile for new/unknown users
+        phone_suffix = req.phone.replace(" ", "").replace("+91", "")[-4:] if req.phone else "0000"
+        kyc = {
+            "persona_id": req.persona_id,
+            "full_name": "Verified User",
+            "phone": req.phone,
+            "masked_aadhaar": f"XXXX-XXXX-{phone_suffix}",
+            "pan": "XXXXX0000X",
+            "dob": "1990-01-01",
+            "gender": "Not Disclosed",
+            "address": "India",
+            "kyc_source": "OTP Mobile Verification",
+            "verification_timestamp": datetime.utcnow().isoformat() + "Z",
+            "occupation": "Account Holder",
+            "bank_linked": "Linked via OTP Verification",
+            "narrative": "New user verified via mobile OTP. Upload a bank statement or connect via Setu AA to build financial twin.",
+            "empathetic_offer": {
+                "title": "Financial Health Assessment",
+                "type": "assessment",
+                "description": "Upload your bank statement to get a free, comprehensive financial health analysis.",
+                "relief_amount": "Free",
+            }
+        }
+
     return {
         "status": "success",
         "verified": True,

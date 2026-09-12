@@ -5,24 +5,32 @@ import { getFinancialTwin } from "@/lib/api";
 import { getScoreColor, getStressColor, formatCurrency, getCategoryIcon } from "@/lib/utils";
 import { TrendingUpIcon, TrendingDownIcon } from "@/components/icons";
 
-type PersonaId = "rajesh_sharma" | "anita_desai" | "vikram_patel";
-
-const PERSONAS: Record<PersonaId, { name: string }> = {
-  rajesh_sharma: { name: "Rajesh Sharma" },
-  anita_desai: { name: "Anita Desai" },
-  vikram_patel: { name: "Vikram Patel" },
-};
-
 export default function FinancialStatePage() {
-  const [persona, setPersona] = useState<PersonaId>("rajesh_sharma");
+  const [personaId, setPersonaId] = useState<string>("");
+  const [personaName, setPersonaName] = useState<string>("");
   const [twin, setTwin] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData(persona);
-  }, [persona]);
+    try {
+      const stored = localStorage.getItem("niva_customer_session");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setPersonaId(parsed.personaId);
+        setPersonaName(parsed.name);
+        loadData(parsed.personaId);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    // No session — redirect to login
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
+  }, []);
 
-  async function loadData(pid: PersonaId) {
+  async function loadData(pid: string) {
     setLoading(true);
     try {
       const data = await getFinancialTwin(pid);
@@ -69,7 +77,7 @@ export default function FinancialStatePage() {
             <section>
               <span className="label-sm text-muted">FINANCIAL DIGITAL TWIN</span>
               <h1 className="headline-lg" style={{ marginTop: 4 }}>
-                {twin.persona_id}&apos;s Complete Financial State
+                {personaName || twin.persona_id}&apos;s Complete Financial State
               </h1>
               <p className="body-md text-secondary" style={{ marginTop: 4 }}>
                 Computed from {twin.window_days}-day window • Data source: {twin.data_source}

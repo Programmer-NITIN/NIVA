@@ -141,7 +141,7 @@ export default function CustomerDashboardPage() {
   const [activeTab, setActiveTab] = useState<"twin" | "copilot" | "schemes" | "spending" | "whatif">("twin");
 
   useEffect(() => {
-    // Load customer session from localStorage if available
+    // Load customer session from localStorage — redirect to login if none exists
     try {
       const stored = localStorage.getItem("niva_customer_session");
       if (stored) {
@@ -154,7 +154,10 @@ export default function CustomerDashboardPage() {
     } catch {
       // ignore
     }
-    fetchDashboardData("rajesh_sharma");
+    // No session found — redirect to onboarding login
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   }, []);
 
   async function fetchDashboardData(personaId: string) {

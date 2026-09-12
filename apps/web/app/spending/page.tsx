@@ -9,13 +9,26 @@ export default function SpendingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
+    try {
+      const stored = localStorage.getItem("niva_customer_session");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        loadData(parsed.personaId);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    // No session — redirect to login
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   }, []);
 
-  async function loadData() {
+  async function loadData(pid: string) {
     setLoading(true);
     try {
-      const data = await getFinancialTwin("rajesh_sharma");
+      const data = await getFinancialTwin(pid);
       setTwin(data);
     } catch (e) {
       console.error(e);

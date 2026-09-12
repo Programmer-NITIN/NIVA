@@ -211,10 +211,75 @@ export default function CustomerOnboardingPage() {
     }
   }
 
+  // Bank data link completion status for active ingestion method
+  const isBankDataLinked =
+    (ingestionMethod === "upload" && Boolean(uploadedSummary && !uploadedSummary.error)) ||
+    (ingestionMethod === "setu" && Boolean(setuDone)) ||
+    (ingestionMethod === "persona" && Boolean(selectedPersona));
+
+  const isCompleteAllowed = Boolean(consentGiven && isBankDataLinked);
+
+  function getLinkingStatusMessage() {
+    if (!isBankDataLinked) {
+      if (ingestionMethod === "upload") {
+        return {
+          type: "pending",
+          text: language === "hi"
+            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर अपनी बैंक स्टेटमेंट फ़ाइल (.csv, .xlsx) अपलोड करें"
+            : language === "gu"
+            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર તમારું બેંક સ્ટેટમેન્ટ (.csv, .xlsx) અપલોડ કરો"
+            : "⚠️ Please upload and parse your bank statement (.csv, .xlsx) above to proceed",
+        };
+      }
+      if (ingestionMethod === "setu") {
+        return {
+          type: "pending",
+          text: language === "hi"
+            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर 'Connect Live Setu AA Bridge' पर क्लिक करके बैंक लिंक करें"
+            : language === "gu"
+            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર 'Connect Live Setu AA Bridge' પર ક્લિક કરો"
+            : "⚠️ Please connect via the Live Setu AA Bridge above to link your data",
+        };
+      }
+      if (ingestionMethod === "persona") {
+        return {
+          type: "pending",
+          text: language === "hi"
+            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर किसी एक प्रोफ़ाइल को चुनें"
+            : language === "gu"
+            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર કોઈપણ એક પ્રોફાઇલ પસંદ કરો"
+            : "⚠️ Please select a demo telemetry profile above to proceed",
+        };
+      }
+    }
+    if (!consentGiven) {
+      return {
+        type: "pending",
+        text: language === "hi"
+          ? "⚠️ आगे बढ़ने के लिए कृपया DPDP सहमति चेकबॉक्स पर टिक करें"
+          : language === "gu"
+          ? "⚠️ આગળ વધવા માટે કૃપા કરીને DPDP સંમતિ ચેકબોક્સ પસંદ કરો"
+          : "⚠️ Please accept the DPDP Act 2023 Consent checkbox to proceed",
+      };
+    }
+    return {
+      type: "ready",
+      text: language === "hi"
+        ? "✓ बैंक डेटा सफलतापूर्वक लिंक हुआ — डैशबोर्ड में प्रवेश के लिए तैयार"
+        : language === "gu"
+        ? "✓ બેંક ડેટા સફળતાપૂર્વક લિંક થયો — ડેશબોર્ડ માટે તૈયાર"
+        : "✓ Bank data linked successfully — Ready to enter dashboard",
+    };
+  }
+
   // Complete Onboarding & Enter Dashboard
   function handleCompleteAndEnterDashboard() {
-    const personaId = selectedPersona || (uploadedSummary ? "custom_user" : "custom_user");
-    const personaData = selectedPersona ? DEMO_PERSONAS[selectedPersona] : null;
+    if (!isCompleteAllowed) {
+      return;
+    }
+
+    const personaId = ingestionMethod === "persona" && selectedPersona ? selectedPersona : "custom_user";
+    const personaData = ingestionMethod === "persona" && selectedPersona ? DEMO_PERSONAS[selectedPersona] : null;
 
     const sessionData = {
       personaId,
@@ -222,7 +287,7 @@ export default function CustomerOnboardingPage() {
       phone: phone,
       bankName: personaData?.bank || BANKS.find((b) => b.id === selectedBank)?.name || "Linked Bank",
       ingestionSource: ingestionMethod,
-      monthlyIncome: uploadedSummary?.twin?.income?.monthly_income || 65000,
+      monthlyIncome: uploadedSummary?.twin?.income?.monthly_income || uploadedSummary?.twin?.monthly_income || 65000,
       essentialExpenses: uploadedSummary?.twin?.expenses?.essential || 26300,
       balance: uploadedSummary?.twin?.liquidity?.available_balance || 50700,
       language: language,
@@ -753,14 +818,41 @@ export default function CustomerOnboardingPage() {
                 </div>
 
                 <div style={{ textAlign: "center" }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleCompleteAndEnterDashboard}
-                    disabled={!consentGiven || (ingestionMethod === "persona" && !selectedPersona) || (ingestionMethod === "upload" && !uploadedSummary && !selectedPersona)}
-                    style={{ minWidth: 320, padding: "12px 28px", fontSize: 15 }}
-                  >
-                    Complete Onboarding &amp; Enter Dashboard →
-                  </button>
+                  {/* Status Indicator Banner */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 16px",
+                      borderRadius: "var(--radius-pill)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: isCompleteAllowed ? "var(--niva-positive-bg)" : "rgba(245, 158, 11, 0.12)",
+                      color: isCompleteAllowed ? "var(--niva-deep-forest)" : "#b45309",
+                      border: `1px solid ${isCompleteAllowed ? "var(--niva-positive)" : "rgba(245, 158, 11, 0.3)"}`,
+                      transition: "all 0.2s ease",
+                    }}>
+                      {getLinkingStatusMessage().text}
+                    </div>
+                  </div>
+
+                  <div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleCompleteAndEnterDashboard}
+                      disabled={!isCompleteAllowed}
+                      style={{
+                        minWidth: 320,
+                        padding: "12px 28px",
+                        fontSize: 15,
+                        cursor: isCompleteAllowed ? "pointer" : "not-allowed",
+                        opacity: isCompleteAllowed ? 1 : 0.45,
+                      }}
+                    >
+                      Complete Onboarding &amp; Enter Dashboard →
+                    </button>
+                  </div>
                   <div style={{ fontSize: 11, color: "var(--niva-text-muted)", marginTop: 8 }}>
                     Zero feature leakage • Direct access to your Financial Digital Twin &amp; Copilot
                   </div>

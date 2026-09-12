@@ -377,8 +377,17 @@ body {
   white-space: nowrap;
 }
 
-.btn:active {
+.btn:active:not(:disabled) {
   transform: scale(0.98);
+}
+
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .btn-primary {
@@ -386,9 +395,16 @@ body {
   color: var(--niva-deep-forest);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--niva-lime-hover);
   transform: translateY(-1px);
+}
+
+.btn-primary:disabled,
+.btn-primary[disabled] {
+  background: var(--niva-canvas-dim);
+  color: var(--niva-text-muted);
+  border: 1px solid var(--niva-border);
 }
 
 .btn-secondary {

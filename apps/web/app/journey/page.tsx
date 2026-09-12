@@ -86,9 +86,6 @@ export default function JourneyPage() {
   const [persona, setPersona] = useState<PersonaId>("rajesh_sharma");
   const [language, setLanguage] = useState<Language>("en");
 
-  // Smartphone simulator toggle
-  const [isMobileFrame, setIsMobileFrame] = useState(false);
-
   // Stage 1 state
   const [otp, setOtp] = useState("");
   const [otpVerified, setOtpVerified] = useState(false);
@@ -351,24 +348,6 @@ export default function JourneyPage() {
             <li><a href="/bank">Bank Portal</a></li>
           </ul>
           <div className="navbar-right">
-            <button
-              onClick={() => setIsMobileFrame(!isMobileFrame)}
-              style={{
-                padding: "4px 12px",
-                borderRadius: "var(--radius-pill)",
-                border: "1px solid var(--niva-border)",
-                background: isMobileFrame ? "var(--niva-deep-forest)" : "transparent",
-                color: isMobileFrame ? "var(--niva-electric-lime)" : "var(--niva-text-secondary)",
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {isMobileFrame ? "🖥️ Desktop View" : "📱 Phone Simulator"}
-            </button>
             <div className="flex-gap-sm">
               {(["en", "hi", "gu"] as Language[]).map((l) => (
                 <button
@@ -399,12 +378,15 @@ export default function JourneyPage() {
         borderBottom: "1px solid var(--niva-border)",
         padding: "16px 0",
         position: "sticky",
-        top: 56,
+        top: 60,
         zIndex: 90,
       }}>
-        <div className="page-container" style={{ display: "flex", alignItems: "center", gap: 0 }}>
+        <div className="page-container" style={{
+          display: "flex", alignItems: "center", gap: 0,
+          overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
+        }}>
           {STAGE_LABELS.map((label, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", flex: 1 }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 120 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
                 opacity: i <= stage ? 1 : 0.6,
@@ -416,7 +398,7 @@ export default function JourneyPage() {
               }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 700,
+                  fontSize: 12, fontWeight: 700, flexShrink: 0,
                   background: i < stage ? "var(--niva-positive)" : i === stage ? "var(--niva-deep-forest)" : "var(--niva-canvas-dim)",
                   color: i <= stage ? "#fff" : "var(--niva-text-muted)",
                   transition: "all 0.3s ease",
@@ -433,7 +415,7 @@ export default function JourneyPage() {
               </div>
               {i < 5 && (
                 <div style={{
-                  flex: 1, height: 2, margin: "0 8px",
+                  flex: 1, height: 2, margin: "0 8px", minWidth: 16,
                   background: i < stage ? "var(--niva-positive)" : "var(--niva-border)",
                   transition: "background 0.5s ease",
                 }} />
@@ -444,33 +426,8 @@ export default function JourneyPage() {
       </div>
 
       {/* Stage Content */}
-      <div className="page-container page-content" ref={stageRef} style={isMobileFrame ? { display: "flex", justifyContent: "center", padding: "20px 0" } : undefined}>
-        <div style={isMobileFrame ? {
-          width: "100%",
-          maxWidth: 440,
-          border: "12px solid #0f172a",
-          borderRadius: 44,
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.4)",
-          background: "var(--niva-canvas)",
-          overflow: "hidden",
-        } : undefined}>
-          {isMobileFrame && (
-            <div style={{
-              background: "#0f172a",
-              color: "#94a3b8",
-              padding: "10px 20px 8px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: 11,
-              fontWeight: 600,
-            }}>
-              <span>14:05</span>
-              <div style={{ width: 68, height: 16, background: "#000", borderRadius: 10 }} />
-              <span>5G 88%</span>
-            </div>
-          )}
-          <div style={isMobileFrame ? { padding: "16px", maxHeight: "78vh", overflowY: "auto" } : undefined} className="stack-xl">
+      <div className="page-container page-content" ref={stageRef} style={{ paddingTop: 32, paddingBottom: 64 }}>
+        <div className="stack-xl">
 
 
           {/* ═══════════════ STAGE 0: Onboarding & Auth ═══════════════ */}
@@ -493,7 +450,7 @@ export default function JourneyPage() {
               {/* Persona Picker */}
               <div className="card">
                 <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SELECT DEMO PERSONA</span>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                <div className="grid-3" style={{ gap: 12 }}>
                   {(Object.keys(PERSONAS) as PersonaId[]).map((pid) => {
                     const pp = PERSONAS[pid];
                     const active = persona === pid;
@@ -566,7 +523,7 @@ export default function JourneyPage() {
                     </div>
                     <span className="chip chip-positive">Identity Confirmed</span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 32px" }}>
+                  <div className="grid-2" style={{ gap: "12px 32px" }}>
                     {[
                       ["Full Name", kyc.full_name],
                       ["Aadhaar", kyc.masked_aadhaar],
@@ -729,7 +686,7 @@ export default function JourneyPage() {
                         <span className="chip chip-positive">ReBIT 1.1 Verified</span>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 16 }}>
+                      <div className="grid-4" style={{ gap: 12, marginTop: 16 }}>
                         <div style={{ padding: 12, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-sm)" }}>
                           <div className="label-sm text-muted">TRANSACTIONS</div>
                           <div className="body-md" style={{ fontWeight: 700, marginTop: 2 }}>{uploadedSummary.transactions_parsed} Rows</div>
@@ -779,7 +736,7 @@ export default function JourneyPage() {
                       </div>
                       <span className="chip chip-positive" style={{ fontSize: 11 }}>UAT Sandbox Ready</span>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                    <div className="grid-3" style={{ gap: 12 }}>
                       <div>
                         <div className="label-sm text-muted">REGISTERED FIU</div>
                         <div className="body-sm" style={{ fontWeight: 600 }}>Nitin Patidar</div>
@@ -821,7 +778,7 @@ export default function JourneyPage() {
                   {/* DPDP Consent Card */}
                   <div className="card">
                     <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>DPDP ACT 2023 — GRANULAR CONSENT</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+                    <div className="grid-3" style={{ gap: 16, marginBottom: 16 }}>
                       <div style={{ padding: 16, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
                         <div className="label-sm text-muted">PURPOSE</div>
                         <div className="body-md" style={{ fontWeight: 600, marginTop: 4 }}>
@@ -858,7 +815,7 @@ export default function JourneyPage() {
                   {consentGiven && (
                     <div className="card" style={{ animation: "fadeSlideUp 0.4s ease forwards" }}>
                       <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>SELECT YOUR BANK (SETU AA BRIDGE)</span>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                      <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
                         {BANKS.map((bank) => (
                           <button key={bank.id} onClick={() => setSelectedBank(bank.id)} style={{
                             padding: 16, borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "center",
@@ -928,7 +885,7 @@ export default function JourneyPage() {
                     <p className="body-sm text-secondary" style={{ marginBottom: 16 }}>
                       Active Persona: <strong>{PERSONAS[persona].name}</strong> ({PERSONAS[persona].city})
                     </p>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                    <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
                       {BANKS.map((bank) => (
                         <button key={bank.id} onClick={() => setSelectedBank(bank.id)} style={{
                           padding: 16, borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "center",
@@ -1006,7 +963,7 @@ export default function JourneyPage() {
 
                   {/* Score Meters */}
                   <div className="card" style={{ animation: "fadeSlideUp 0.4s ease forwards" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 24 }}>
+                    <div className="grid-4" style={{ gap: 20 }}>
                       {[
                         { label: "Health Score", value: ft.health_score, max: 100, color: ft.health_score >= 70 ? "var(--niva-positive)" : ft.health_score >= 50 ? "var(--niva-warning)" : "var(--niva-critical)" },
                         { label: "Stress Score", value: ft.stress_score, max: 100, color: ft.stress_score <= 40 ? "var(--niva-positive)" : ft.stress_score <= 60 ? "var(--niva-warning)" : "var(--niva-critical)" },
@@ -1033,7 +990,7 @@ export default function JourneyPage() {
                   {/* Key Metrics */}
                   <div className="card" style={{ animation: "fadeSlideUp 0.5s ease forwards" }}>
                     <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>DERIVED METRICS</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                    <div className="grid-3" style={{ gap: 16 }}>
                       {[
                         { label: "Monthly Income", value: `₹${ft.monthly_income?.toLocaleString("en-IN")}` },
                         { label: "Total Expenses", value: `₹${ft.total_expenses?.toLocaleString("en-IN")}` },
@@ -1276,7 +1233,7 @@ export default function JourneyPage() {
                     {ft?.stress_level === "low" ? "LOW RISK" : ft?.stress_level === "critical" ? "HIGH RISK — PRE-NPA WATCH" : "ELEVATED RISK"}
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                <div className="grid-4" style={{ gap: 16 }}>
                   {[
                     { label: "Health", value: `${ft?.health_score}/100` },
                     { label: "Stress", value: `${ft?.stress_score}/100` },
@@ -1294,7 +1251,7 @@ export default function JourneyPage() {
               {/* Gate Decisions Summary */}
               <div className="card">
                 <span className="label-sm text-muted" style={{ marginBottom: 12, display: "block" }}>RESPONSIBLE GATE DECISIONS</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="grid-2" style={{ gap: 12 }}>
                   <div style={{ padding: 16, background: "var(--niva-critical-bg)", borderRadius: "var(--radius-md)", textAlign: "center" }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-critical)" }}>{gate?.suppressed_count}</div>
                     <div className="body-sm text-muted">Products Suppressed</div>
@@ -1347,7 +1304,7 @@ export default function JourneyPage() {
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
             padding: "16px 0", marginTop: 24, borderTop: "1px solid var(--niva-border)",
-            flexWrap: isMobileFrame ? "wrap" : "nowrap", gap: 10,
+            flexWrap: "wrap", gap: 10,
           }}>
             <button
               className="btn btn-outline"
@@ -1365,16 +1322,15 @@ export default function JourneyPage() {
                 className="btn btn-primary"
                 onClick={advance}
                 disabled={!canAdvance()}
-                style={{ minWidth: isMobileFrame ? 140 : 180, fontSize: 13, padding: "8px 16px" }}
+                style={{ minWidth: 160, fontSize: 13, padding: "8px 16px" }}
               >
                 {language === "hi" ? "आगे बढ़ें →" : language === "gu" ? "આગળ વધો →" : "Continue →"}
               </button>
             ) : (
-              <a href="/" className="btn btn-primary" style={{ minWidth: isMobileFrame ? 140 : 180, fontSize: 13, padding: "8px 16px" }}>
+              <a href="/" className="btn btn-primary" style={{ minWidth: 160, fontSize: 13, padding: "8px 16px" }}>
                 Dashboard →
               </a>
             )}
-          </div>
           </div>
         </div>
       </div>

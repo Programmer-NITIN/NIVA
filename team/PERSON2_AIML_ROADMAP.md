@@ -1,6 +1,7 @@
 # 🧠 Person 2: AI/ML Lead — Complete Execution Roadmap
 
-> **Owner**: Person 2 (AI/ML & Data Science)  
+> **Owner**: Abhishek Agrawal (@Abhishek-Ag-1112) — Person 2 (AI/ML & Model Governance Lead)  
+> **Contact**: abhishek040478@gmail.com  
 > **Objective**: Build 4 ML models + 1 explainability engine that plug directly into NIVA's existing FastAPI backend  
 > **Time Budget**: ~20 hours of focused work across the hackathon
 

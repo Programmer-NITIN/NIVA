@@ -1,5 +1,7 @@
 # NIVA Machine Learning Model Evaluation & Compliance Report
 
+**Author:** Abhishek Agrawal (@Abhishek-Ag-1112) <abhishek040478@gmail.com>  
+**Role:** Person 2 — AI/ML Architecture & Model Governance Lead  
 **System Version:** NIVA-ML v1.0.0  
 **Compliance Scope:** RBI Digital Lending Guidelines & Ethical AI Framework  
 **Evaluated On:** Bharat Synthetic Banking Dataset (5,000 Profiles, 30,000 Transactions)  

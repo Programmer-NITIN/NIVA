@@ -77,6 +77,18 @@ async def get_spending_analysis(persona_id: str):
     except Exception:
         flagged_txns = []
 
+    # Dynamically extract recurring mandates from real transaction patterns
+    from app.services.twin import _uploaded_statements
+    if persona_id in _uploaded_statements:
+        txns = _uploaded_statements[persona_id].transactions
+    else:
+        from app.providers.aa.mock_rebit import RebitMockAAProvider
+        aa = RebitMockAAProvider()
+        fi_data = await aa.fetch_fi_data("CNST-DEMO", persona_id)
+        txns = fi_data.transactions
+
+    dynamic_mandates = twin_service._detect_recurring_mandates(txns)
+
     return {
         "persona_id": persona_id,
         "monthly_essential": twin.expenses.essential,
@@ -85,11 +97,7 @@ async def get_spending_analysis(persona_id: str):
         "essential_ratio": twin.expenses.essential_ratio,
         "categories": categories_breakdown,
         "anomalies_detected": flagged_txns,
-        "recurring_mandates": [
-            {"label": "Apartment Rent", "amount": 18000.0, "due_day": 3, "status": "PAID"},
-            {"label": "Zerodha Wealth SIP", "amount": 5000.0, "due_day": 5, "status": "PAID"},
-            {"label": "Electricity (BESCOM/UGVCL)", "amount": 1850.0, "due_day": 10, "status": "UPCOMING"},
-        ],
+        "recurring_mandates": dynamic_mandates,
     }
 
 
@@ -109,17 +117,33 @@ async def simulate_stress(persona_id: str, req: StressSimulationRequest):
     adj_runway_months = round(adj_balance / essential, 1)
     adj_runway_days = int(adj_runway_months * 30)
 
-    # Calculate simulated DTI
+    # Calculate simulated DTI and savings rate
     total_emi = float(twin.debt.total_emi)
     simulated_dti = round(total_emi / adj_income, 2)
+    simulated_savings_rate = max(0.0, (adj_income - (essential + total_emi)) / adj_income)
 
-    # Calculate simulated Health & Stress Scores
-    health_penalty = int((req.shock_amount / 2000.0) + (req.income_drop_pct * 0.8))
-    simulated_health = max(15, min(95, twin.health_score - health_penalty))
-    simulated_stress = min(98, max(10, twin.stress_score + int(health_penalty * 0.9)))
+    # Run shock-adjusted features through live XGBoost model
+    try:
+        from app.ml.explainer import StressExplainer
+        from app.api.v1.ml import extract_ml_features
+        features = await extract_ml_features(persona_id)
+        features["monthly_income"] = adj_income
+        features["dti_ratio"] = simulated_dti
+        features["savings_rate"] = simulated_savings_rate
+        features["liquidity_buffer_days"] = float(adj_runway_days)
+        features["balance_trend_slope"] = -float(req.shock_amount)
+        features["expense_trend_pct"] = float(twin.expenses.trend + (req.income_drop_pct * 0.5))
 
-    # Determine default risk and intervention
-    default_risk = "HIGH" if simulated_dti > 0.45 or adj_runway_months < 1.0 else "MODERATE" if simulated_dti > 0.35 else "LOW"
+        explainer = StressExplainer()
+        res = explainer.explain(features)
+        simulated_stress = min(98, max(5, int(round(res["stress_probability"] * 100))))
+        simulated_health = max(10, min(95, 100 - simulated_stress))
+        default_risk = "HIGH" if res["risk_level"] in ["high", "critical"] or simulated_dti > 0.45 else "MODERATE" if res["risk_level"] == "elevated" else "LOW"
+    except Exception:
+        health_penalty = int((req.shock_amount / 2000.0) + (req.income_drop_pct * 0.8))
+        simulated_health = max(15, min(95, twin.health_score - health_penalty))
+        simulated_stress = min(98, max(10, twin.stress_score + int(health_penalty * 0.9)))
+        default_risk = "HIGH" if simulated_dti > 0.45 or adj_runway_months < 1.0 else "MODERATE" if simulated_dti > 0.35 else "LOW"
 
     return {
         "persona_id": persona_id,

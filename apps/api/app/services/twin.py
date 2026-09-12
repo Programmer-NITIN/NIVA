@@ -92,7 +92,7 @@ class FinancialTwinService:
 
         # === Composite Scores ===
         health_score = self._compute_health_score(income, savings, debt, liquidity, expenses)
-        stress_result = self._compute_stress(savings, debt, expenses, liquidity)
+        stress_result = self._compute_stress(savings, debt, expenses, liquidity, txns, recent_txns, income)
         anomaly_score = self._compute_anomaly(recent_txns, baseline_txns)
 
         # === What Changed ===
@@ -282,105 +282,215 @@ class FinancialTwinService:
 
         return max(0, min(100, round(score)))
 
-    def _compute_stress(self, savings, debt, expenses, liquidity) -> dict:
+    def _compute_stress(self, savings, debt, expenses, liquidity, txns=None, recent_txns=None, income=None) -> dict:
         """
-        Financial Stress Score (0-100).
-        Rules-based with interpretable contributing factors.
+        Computes financial stress via trained XGBoost model and SHAP TreeExplainer.
+        Uses 13 Bharat financial behavioral features.
         """
-        factors = []
-        score = 0
+        all_txns = txns or []
+        rec_txns = recent_txns or []
+        total_txns = max(len(all_txns), 1)
 
-        # Savings declining
-        if savings.trend < -15:
-            contribution = 20
-            score += contribution
-            factors.append(StressFactor(
-                factor="Savings rate declining",
-                value=savings.trend,
-                threshold=-15,
-                contribution=contribution,
-                description=f"Savings rate trend is {savings.trend}% (threshold: -15%)",
-            ))
+        night_count = 0
+        categories = []
+        for t in all_txns:
+            hr = getattr(t.transaction_date, "hour", 12) if hasattr(t, "transaction_date") and t.transaction_date else 12
+            if hr >= 23 or hr <= 5:
+                night_count += 1
+            if getattr(t, "category", None):
+                categories.append(str(t.category))
 
-        # Credit utilization rising
-        if debt.credit_utilization_change and debt.credit_utilization_change > 0.2:
-            contribution = 20
-            score += contribution
-            factors.append(StressFactor(
-                factor="Credit utilization rising",
-                value=round(debt.credit_utilization_change * 100),
-                threshold=20,
-                contribution=contribution,
-                description=f"Credit card utilization increased by {round(debt.credit_utilization_change * 100)}%",
-            ))
+        from collections import Counter
+        from math import log2
+        cat_counts = Counter(categories)
+        entropy = 0.0
+        for count in cat_counts.values():
+            p = count / total_txns
+            if p > 0:
+                entropy -= p * log2(p)
 
-        # Discretionary spending up
-        if expenses.trend > 15:
-            contribution = 15
-            score += contribution
-            factors.append(StressFactor(
-                factor="Discretionary spending increasing",
-                value=expenses.trend,
-                threshold=15,
-                contribution=contribution,
-                description=f"Expenses trending up {expenses.trend}% vs baseline",
-            ))
+        monthly_inc = float(income.monthly_income) if income else 65000.0
+        stability = float(income.stability) if income else 75.0
+        income_cv = max(0.01, float((100 - stability) / 100))
+        dti = float(debt.debt_to_income) if debt else 0.3
+        savings_rate = float(savings.rate / 100) if savings else 0.15
+        liquidity_days = float(liquidity.emergency_months * 30) if liquidity else 60.0
+        total_exp = max(float(expenses.total), 1.0) if expenses else 25000.0
+        discretionary_ratio = float(expenses.discretionary / total_exp) if expenses else 0.35
 
-        # EMI burden high
-        if debt.emi_to_income > 0.35:
-            contribution = 15
-            score += contribution
-            factors.append(StressFactor(
-                factor="High EMI burden",
-                value=round(debt.emi_to_income * 100),
-                threshold=35,
-                contribution=contribution,
-                description=f"EMI-to-income ratio at {round(debt.emi_to_income * 100)}% (threshold: 35%)",
-            ))
+        late_mandates = 0
+        for t in all_txns:
+            desc = (getattr(t, "description", "") or "").lower()
+            if any(k in desc for k in ["bounce", "penalty", "late", "return", "ecs ret", "nach ret"]):
+                late_mandates += 1
 
-        # Low emergency buffer
-        if liquidity.emergency_months < 2:
-            contribution = 10
-            score += contribution
-            factors.append(StressFactor(
-                factor="Low emergency buffer",
-                value=liquidity.emergency_months,
-                threshold=2,
-                contribution=contribution,
-                description=f"Emergency buffer at {liquidity.emergency_months} months (target: 3+)",
-            ))
+        features = {
+            "monthly_income": monthly_inc,
+            "income_volatility_cv": income_cv,
+            "dti_ratio": dti,
+            "savings_rate": savings_rate,
+            "liquidity_buffer_days": liquidity_days,
+            "discretionary_spend_ratio": discretionary_ratio,
+            "late_mandate_count_90d": float(late_mandates),
+            "balance_trend_slope": -4500.0 if (expenses and expenses.trend > 15) else 1200.0,
+            "expense_trend_pct": float(expenses.trend) if expenses else 0.0,
+            "upi_txns_per_day": round(len(rec_txns) / 30.0, 2) if rec_txns else 1.5,
+            "night_txn_ratio": round(night_count / total_txns, 4),
+            "new_beneficiary_pct": 0.08,
+            "merchant_category_entropy": round(max(0.5, entropy), 4),
+        }
 
-        score = min(100, score)
+        try:
+            from app.ml.explainer import StressExplainer
+            explainer = StressExplainer()
+            explanation = explainer.explain(features)
+            prob = explanation["stress_probability"]
+            score = min(100, max(0, int(round(prob * 100))))
+            level = explanation["risk_level"]
 
-        # Classify level
-        if score >= 70:
-            level = "high"
-        elif score >= 50:
-            level = "elevated"
-        elif score >= 30:
-            level = "moderate"
-        else:
-            level = "low"
-
-        return {"score": score, "level": level, "factors": factors}
+            factors = [
+                StressFactor(
+                    factor=f["label"],
+                    value=float(f["value"]),
+                    threshold=0.0,
+                    contribution=int(round(f["impact_magnitude"] * 100)),
+                    description=f"SHAP local attribution: {f['direction'].title()} driver ({f['label']} = {f['value']}) contributing {f['impact_magnitude']:.3f} impact",
+                )
+                for f in explanation["top_risk_factors"]
+            ]
+            return {"score": score, "level": level, "factors": factors, "ml_explanation": explanation}
+        except Exception:
+            # Fallback if model loading encounters an edge case
+            score = min(95, max(15, int(dti * 100 + (1.0 - savings_rate) * 30)))
+            level = "critical" if score >= 75 else "high" if score >= 60 else "elevated" if score >= 40 else "moderate" if score >= 25 else "low"
+            return {
+                "score": score,
+                "level": level,
+                "factors": [
+                    StressFactor(factor="Debt-to-Income", value=dti, threshold=0.4, contribution=25, description="High DTI burden"),
+                    StressFactor(factor="Liquidity Buffer", value=liquidity_days, threshold=90.0, contribution=20, description="Available liquidity"),
+                ],
+            }
 
     def _compute_anomaly(self, recent_txns, baseline_txns) -> int:
-        """Simple anomaly detection using Z-score on transaction amounts."""
-        baseline_debits = [t.amount for t in baseline_txns if t.type == "DEBIT"]
-        if not baseline_debits:
+        """Anomaly detection using trained Isolation Forest ML model."""
+        if not recent_txns:
             return 0
+        try:
+            from app.ml.anomaly_detector import TransactionAnomalyDetector
+            detector = TransactionAnomalyDetector()
+            
+            baseline_debits = [t.amount for t in baseline_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            avg_debit = (sum(baseline_debits) / len(baseline_debits)) if baseline_debits else 1000.0
+            
+            txn_payloads = []
+            for t in recent_txns:
+                amt = float(getattr(t, "amount", 0.0))
+                txn_date = getattr(t, "transaction_date", None)
+                hr = txn_date.hour if txn_date and hasattr(txn_date, "hour") else 12
+                txn_payloads.append({
+                    "transaction_id": getattr(t, "transaction_id", "") or getattr(t, "id", ""),
+                    "amount": amt,
+                    "avg_amount_30d": avg_debit,
+                    "transaction_hour": hr,
+                    "velocity_1h": 1,
+                    "is_new_beneficiary": False,
+                })
+                
+            results = detector.detect(txn_payloads)
+            max_score = max((r.get("anomaly_score", 0.0) for r in results), default=0.0)
+            return min(100, max(0, int(round(max_score * 100))))
+        except Exception:
+            baseline_debits = [t.amount for t in baseline_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            if not baseline_debits:
+                return 0
+            mean = sum(baseline_debits) / len(baseline_debits)
+            std = (sum((x - mean) ** 2 for x in baseline_debits) / len(baseline_debits)) ** 0.5
+            if std == 0:
+                return 0
+            recent_debits = [t.amount for t in recent_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            max_z = max((abs(x - mean) / std) for x in recent_debits) if recent_debits else 0
+            return min(100, round(max_z * 20))
 
-        mean = sum(baseline_debits) / len(baseline_debits)
-        std = (sum((x - mean) ** 2 for x in baseline_debits) / len(baseline_debits)) ** 0.5
+    def _detect_recurring_mandates(self, txns: list) -> list[dict]:
+        """
+        Dynamically detects recurring debit mandates from real transaction patterns
+        (e.g., monthly EMI, house rent, utilities, insurance, SIP investments).
+        """
+        mandates = []
+        if not txns:
+            return mandates
 
-        if std == 0:
-            return 0
+        debits = [t for t in txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+        grouped: dict[str, list] = defaultdict(list)
 
-        recent_debits = [t.amount for t in recent_txns if t.type == "DEBIT"]
-        max_z = max((abs(x - mean) / std) for x in recent_debits) if recent_debits else 0
+        MANDATE_KEYWORDS = {
+            "Apartment Rent / Lease": ["rent", "landlord", "housing", "society maintenance"],
+            "Home / Personal Loan EMI": ["emi", "loan", "hdb", "bajaj", "credit card payment", "equitas"],
+            "Electricity & Power Bill": ["bescom", "ugvcl", "tneb", "mseb", "electricity", "power"],
+            "Telecom & Broadband": ["airtel", "jio", "act corp", "broadband", "fibernet", "bsnl"],
+            "Insurance Premium (Life/Health)": ["lic", "insurance", "hdfc ergo", "star health", "policy"],
+            "Wealth SIP / Mutual Fund": ["zerodha", "groww", "uti", "mf", "sip", "kuvera", "camsonline"],
+            "Water & Municipal Tax": ["water board", "municipal", "bwssb", "tax"],
+        }
 
-        # Z-score > 3 = highly anomalous
-        return min(100, round(max_z * 20))
+        for d in debits:
+            desc = (getattr(d, "description", "") or "").lower()
+            cat = (getattr(d, "category", "") or "").lower()
+            
+            matched_label = None
+            for label, keywords in MANDATE_KEYWORDS.items():
+                if any(k in desc or k in cat for k in keywords):
+                    matched_label = label
+                    break
+            
+            if matched_label:
+                grouped[matched_label].append(d)
+            elif cat in ["emi", "rent", "utilities", "insurance", "investment"]:
+                clean_cat = cat.replace("_", " ").title()
+                grouped[f"{clean_cat} Recurring Mandate"].append(d)
+
+        now = datetime.utcnow()
+        for label, group_txns in grouped.items():
+            group_txns.sort(key=lambda x: getattr(x, "transaction_date", now), reverse=True)
+            latest = group_txns[0]
+            avg_amt = sum(getattr(t, "amount", 0.0) for t in group_txns) / len(group_txns)
+            due_day = getattr(latest.transaction_date, "day", 5) if hasattr(latest, "transaction_date") and latest.transaction_date else 5
+            
+            last_date = getattr(latest, "transaction_date", None)
+            is_recent = False
+            if last_date:
+                days_diff = (now - last_date).days if hasattr((now - last_date), "days") else 15
+                is_recent = days_diff <= 30
+            
+            mandates.append({
+                "label": label,
+                "amount": round(avg_amt, 2),
+                "due_day": due_day,
+                "status": "PAID" if is_recent else "UPCOMING",
+            })
+
+        if not mandates:
+            merchant_groups: dict[str, list] = defaultdict(list)
+            for d in debits:
+                desc = (getattr(d, "description", "") or "General Recurring Debit").strip()
+                merchant_groups[desc].append(d)
+            
+            for m_desc, m_txns in merchant_groups.items():
+                if len(m_txns) >= 2 or any(getattr(t, "amount", 0) > 3000 for t in m_txns):
+                    avg_amt = sum(getattr(t, "amount", 0.0) for t in m_txns) / len(m_txns)
+                    first_txn = m_txns[0]
+                    due_day = getattr(first_txn.transaction_date, "day", 10) if hasattr(first_txn, "transaction_date") and first_txn.transaction_date else 10
+                    mandates.append({
+                        "label": m_desc[:32],
+                        "amount": round(avg_amt, 2),
+                        "due_day": due_day,
+                        "status": "PAID",
+                    })
+                if len(mandates) >= 5:
+                    break
+
+        return mandates
 
     def _compute_changes(self, recent_txns, baseline_txns, monthly_income: float) -> list[ChangeSignal]:
         """Detect significant changes from baseline."""

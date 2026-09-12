@@ -69,76 +69,101 @@ async def get_customer_detail(persona_id: str):
     }
 
 
+# Cryptographic Merkle Audit Trail Singleton
+from app.ml.audit import MerkleAuditTrail
+audit_ledger = MerkleAuditTrail()
+
+
 @router.get("/audit/{persona_id}")
 async def get_audit_trail(persona_id: str):
-    """Get audit trail for a customer's decisions."""
-    now = datetime.utcnow()
-    
-    # Generate deterministic audit entries
-    entries = [
-        AuditLogEntry(
-            id="AUD-001",
-            timestamp=now.replace(second=19, microsecond=481000),
-            actor="Setu AA Ingestion Gateway",
-            action="FIU FI-Request Fetch (HDFC + ICICI)",
-            resource_type="consent",
-            resource_id=f"CNST-{persona_id[:4].upper()}",
-            result="SUCCESS (200)",
-            policy_id=None,
-            integrity_hash=hashlib.sha256(f"audit-1-{persona_id}".encode()).hexdigest()[:12],
-        ),
-        AuditLogEntry(
-            id="AUD-002",
-            timestamp=now.replace(second=20, microsecond=104000),
-            actor="NIVA Cashflow Engine v4.9",
-            action="Drawdown Velocity & Liquidity Stress Run",
-            resource_type="financial_state",
-            resource_id=persona_id,
-            result="STRESS=78 HIGH",
-            policy_id=None,
-            integrity_hash=hashlib.sha256(f"audit-2-{persona_id}".encode()).hexdigest()[:12],
-        ),
-        AuditLogEntry(
-            id="AUD-003",
-            timestamp=now.replace(second=20, microsecond=312000),
-            actor="Responsible Gatekeeper Node",
-            action="Policy POL-402 (Anti-Predatory Overleveraging)",
-            resource_type="recommendation",
-            resource_id=f"REC-{persona_id[:4].upper()}",
-            result="SUPPRESSED",
-            policy_id="POL-402",
-            integrity_hash=hashlib.sha256(f"audit-3-{persona_id}".encode()).hexdigest()[:12],
-        ),
-        AuditLogEntry(
-            id="AUD-004",
-            timestamp=now.replace(minute=3, second=2, microsecond=890000),
-            actor="Bank Officer (Underwriting)",
-            action="Case File Inspected (Session 0921-A)",
-            resource_type="recommendation",
-            resource_id=f"REC-{persona_id[:4].upper()}",
-            result="VIEWED",
-            policy_id=None,
-            integrity_hash=hashlib.sha256(f"audit-4-{persona_id}".encode()).hexdigest()[:12],
-        ),
-    ]
+    """
+    Get live tamper-proof cryptographic audit trail for a customer's decisions.
+    Directly complies with RBI Master Directions on algorithmic explainability and auditability.
+    """
+    # Check if we already have entries for this persona in the cryptographic ledger
+    existing = [e for e in audit_ledger.get_history() if e.get("persona_id") == persona_id]
 
-    # Include any dynamic empathetic relief actions accepted by customer in journey
+    if not existing:
+        # Generate live initial audit blocks for this customer
+        twin = await twin_service.compute_twin(persona_id)
+        recs = await gate_service.evaluate_all_products(persona_id)
+
+        # 1. Ingestion & DPDP consent block
+        audit_ledger.log_decision(persona_id, {
+            "actor": "Live Ingestion Gateway (ReBIT 1.1 / Statement Parser)",
+            "action": f"Financial Ingestion & DPDP Consent Verification ({twin.persona_id or persona_id})",
+            "resource_type": "consent",
+            "resource_id": f"CNST-{persona_id[:8].upper()}",
+            "result": f"SUCCESS (Income: ₹{twin.income.monthly_income:,.0f}, Liquidity: ₹{twin.liquidity.available_balance:,.0f})",
+            "policy_id": "DPDP-ACT-2023",
+        })
+
+        # 2. XGBoost ML Stress computation block
+        audit_ledger.log_decision(persona_id, {
+            "actor": "XGBoost ML Stress Engine + SHAP TreeExplainer",
+            "action": f"Inference Run (DTI: {twin.debt.debt_to_income * 100:.1f}%, Buffer: {twin.liquidity.emergency_months}m)",
+            "resource_type": "financial_state",
+            "resource_id": persona_id,
+            "result": f"STRESS={twin.stress_score} ({twin.stress_level.upper()})",
+            "policy_id": "RBI-STRESS-CALIBRATION",
+        })
+
+        # 3. Responsible gatekeeper decision block
+        suppressed = [r for r in recs.recommendations if r.decision == "SUPPRESS"]
+        policy_code = suppressed[0].policy_id if suppressed else "POL-201-APPROVED"
+        gate_result = f"SUPPRESSED {len(suppressed)} UNSECURED PRODUCTS" if suppressed else "APPROVED ELIGIBLE LINES"
+        audit_ledger.log_decision(persona_id, {
+            "actor": "Responsible Gatekeeper Node",
+            "action": f"Anti-Predatory Policy Evaluation ({policy_code})",
+            "resource_type": "recommendation",
+            "resource_id": f"REC-{persona_id[:8].upper()}",
+            "result": gate_result,
+            "policy_id": policy_code,
+        })
+
+    # Include any customer-accepted relief actions
     from app.api.v1.journey import _accepted_relief_actions
     for act in _accepted_relief_actions:
         if act.get("persona_id") == persona_id:
-            entries.insert(0, AuditLogEntry(
-                id=act["id"],
-                timestamp=datetime.fromisoformat(act["timestamp"]),
-                actor="Customer via Empathetic Relief Modal",
-                action=f"EMPATHETIC RELIEF GRANTED: {act['selected_option']}",
-                resource_type="loan_restructuring",
-                resource_id=act["id"],
-                result="ACTIVE / NON-PUNITIVE",
-                policy_id="POL-RELIEF-01",
-                integrity_hash=hashlib.sha256(f"relief-{act['id']}".encode()).hexdigest()[:12],
+            already_logged = any(
+                e.get("decision", {}).get("resource_id") == act["id"]
+                for e in audit_ledger.get_history()
+            )
+            if not already_logged:
+                audit_ledger.log_decision(persona_id, {
+                    "actor": "Customer via Empathetic Relief Portal",
+                    "action": f"EMPATHETIC RELIEF GRANTED: {act['selected_option']}",
+                    "resource_type": "loan_restructuring",
+                    "resource_id": act["id"],
+                    "result": "ACTIVE / NON-PUNITIVE RESTOCKING",
+                    "policy_id": "POL-RELIEF-01",
+                })
+
+    # Build response entries from cryptographic ledger
+    entries = []
+    for e in reversed(audit_ledger.get_history()):
+        if e.get("persona_id") == persona_id:
+            dec = e.get("decision", {})
+            ts_val = e.get("timestamp")
+            dt_obj = datetime.fromisoformat(ts_val) if isinstance(ts_val, str) else ts_val
+            entries.append(AuditLogEntry(
+                id=f"AUD-{e['index'] + 1:03d}",
+                timestamp=dt_obj,
+                actor=dec.get("actor", "NIVA System"),
+                action=dec.get("action", "Evaluation Block"),
+                resource_type=dec.get("resource_type", "state"),
+                resource_id=dec.get("resource_id", persona_id),
+                result=dec.get("result", "VERIFIED"),
+                policy_id=dec.get("policy_id"),
+                integrity_hash=e["hash"][:12],
             ))
 
-    return {"persona_id": persona_id, "audit_trail": entries}
+    return {
+        "persona_id": persona_id,
+        "chain_verified": audit_ledger.verify_chain(),
+        "root_hash": audit_ledger.root_hash,
+        "audit_trail": entries,
+    }
 
 
 @router.post("/actions/restructure")

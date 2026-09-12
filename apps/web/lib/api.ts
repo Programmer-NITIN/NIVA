@@ -127,3 +127,28 @@ export async function getJourneyState(personaId: string) {
   return fetchAPI<any>(`/journey/state/${personaId}`);
 }
 
+// ── ML Intelligence & Explainability Endpoints ───────────────
+
+export async function getMLStressPrediction(personaId: string) {
+  return fetchAPI<any>(`/ml/stress-prediction/${personaId}`);
+}
+
+export async function getMLAnomalies(personaId: string) {
+  return fetchAPI<any>(`/ml/anomalies/${personaId}`);
+}
+
+export async function getMLLifeStage(personaId: string) {
+  return fetchAPI<any>(`/ml/life-stage/${personaId}`);
+}
+
+export async function getMLResponsibleRecommendations(personaId: string) {
+  return fetchAPI<any>(`/ml/responsible-recommendations/${personaId}`);
+}
+
+export async function getMLAuditTrail() {
+  return fetchAPI<any>("/ml/audit-trail");
+}
+
+export async function getMLModelMetrics() {
+  return fetchAPI<any>("/ml/model-metrics");
+}

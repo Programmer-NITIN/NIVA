@@ -138,8 +138,9 @@ async def detect_anomalies(persona_id: str):
         formatted_txns = []
         for i, t in enumerate(txns):
             hr = t.transaction_date.hour if hasattr(t, "transaction_date") and t.transaction_date else 14
+            txn_id = getattr(t, "txn_id", None) or f"TXN_{persona_id}_{i:04d}"
             formatted_txns.append({
-                "transaction_id": getattr(t, "txn_id", f"TXN_{persona_id}_{i:04d}"),
+                "transaction_id": str(txn_id),
                 "amount": float(getattr(t, "amount", 0.0)),
                 "category": getattr(t, "category", "general"),
                 "transaction_hour": hr,

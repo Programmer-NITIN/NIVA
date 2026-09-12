@@ -8,6 +8,7 @@ All calculations are deterministic (no LLM) — zero hallucination arithmetic.
 
 from datetime import datetime, timedelta
 from collections import defaultdict
+from typing import Any
 from app.providers.aa.mock_rebit import RebitMockAAProvider
 from app.services.statement_parser import BankStatementParser
 from app.schemas.financial import (

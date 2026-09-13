@@ -206,8 +206,16 @@ export default function JourneyPage() {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await uploadBankStatement(file, "custom_user", kyc?.full_name || "Verified Customer", PERSONAS[persona]?.phone || "+91 98765 00000");
+      const res = await uploadBankStatement(
+        file,
+        "custom_user",
+        kyc?.full_name || "",
+        PERSONAS[persona]?.phone || "+91 98980 12345"
+      );
       setUploadedSummary(res);
+      if (res.kyc) {
+        setKyc(res.kyc);
+      }
       setDataFetched(true);
       const fullData = await getJourneyState("custom_user");
       setJourneyData(fullData);

@@ -14,13 +14,17 @@ from app.api.router import api_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
-    # Startup
     print("[NIVA] Backend starting...")
     print(f"   AA Mode:      {settings.aa_mode}")
     print(f"   LLM Provider: {settings.llm_provider}")
-    print(f"   Database:     connected")
+    # Try to init DB (sqlite fallback if postgres unavailable)
+    try:
+        from app.database import init_db
+        await init_db()
+        print(f"   Database:     initialized")
+    except Exception as e:
+        print(f"   Database:     init failed ({e}) - will retry on request")
     yield
-    # Shutdown
     print("[NIVA] Backend shutting down...")
 
 
@@ -36,13 +40,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS
+# CORS - restrict to configured origins
+_allowed = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=_allowed,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Real-time Terminal Request Logging Middleware

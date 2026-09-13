@@ -22,3 +22,18 @@ async def switch_persona(persona_id: str):
         return {"error": f"Unknown persona. Valid: {valid}"}
     _active_persona["persona_id"] = persona_id
     return {"status": "switched", "persona_id": persona_id}
+
+
+@router.post("/reset")
+async def reset_demo():
+    """One-click Judge Reset: clears uploaded state and restores personas."""
+    from app.services.twin import _uploaded_twins, _uploaded_statements
+    from app.api.v1.journey import _accepted_relief_actions, PERSONA_KYC
+    from app.services.pots import _pots_store
+    _uploaded_twins.clear()
+    _uploaded_statements.clear()
+    _accepted_relief_actions.clear()
+    _pots_store.clear()
+    # keep base personas
+    _active_persona["persona_id"] = "rajesh_sharma"
+    return {"status": "reset", "message": "Demo state cleared. Personas restored."}

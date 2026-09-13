@@ -7,7 +7,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function getAuthToken(): string | null {
   if (typeof window !== "undefined") {
-    return localStorage.getItem("niva_auth_token");
+    return localStorage.getItem("niva_auth_token") || localStorage.getItem("niva_token");
   }
   return null;
 }
@@ -15,13 +15,20 @@ export function getAuthToken(): string | null {
 export function setAuthToken(token: string) {
   if (typeof window !== "undefined") {
     localStorage.setItem("niva_auth_token", token);
+    localStorage.setItem("niva_token", token);
   }
 }
 
 export function clearAuthToken() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("niva_auth_token");
+    localStorage.removeItem("niva_token");
   }
+}
+
+function getAuthHeader(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -35,6 +42,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   const res = await fetch(`${API_BASE}/api/v1${endpoint}`, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -63,6 +71,84 @@ export async function verifyOtp(phone: string, otp: string, personaId: string) {
     setAuthToken(res.access_token);
   }
   return res;
+}
+
+export async function verifyOtpNew(phone: string, otp: string) {
+  const res = await fetchAPI<any>("/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, otp }),
+  });
+  if (res.access_token) {
+    setAuthToken(res.access_token);
+  }
+  return res;
+}
+
+export async function getMe() {
+  return fetchAPI<any>("/auth/me");
+}
+
+export async function resetDemo() {
+  return fetchAPI<any>("/demo/reset", { method: "POST" });
+}
+
+export async function getPots(personaId: string) {
+  return fetchAPI<any>(`/pots/${personaId}`);
+}
+
+export async function sweepPot(personaId: string, amount: number, to_pot = "Emergency") {
+  return fetchAPI<any>("/pots/sweep", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, amount, to_pot }),
+  });
+}
+
+export async function releasePot(personaId: string, amount: number, from_pot = "Dukaan Stock") {
+  return fetchAPI<any>("/pots/release", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, amount, from_pot }),
+  });
+}
+
+export async function createPot(
+  personaId: string,
+  name: string,
+  target: number,
+  initial_balance = 0,
+  auto_sweep_pct = 10,
+  icon = "🏺"
+) {
+  return fetchAPI<any>("/pots/create", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, name, target, initial_balance, auto_sweep_pct, icon }),
+  });
+}
+
+export async function deletePot(personaId: string, potId: string) {
+  return fetchAPI<any>(`/pots/${personaId}/${potId}`, { method: "DELETE" });
+}
+
+export async function runPotsAutopilot(personaId: string) {
+  return fetchAPI<any>(`/pots/autopilot/${personaId}`, { method: "POST" });
+}
+
+export async function ingestSms(personaId: string, sms_text: string) {
+  return fetchAPI<any>("/sms/ingest", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, sms_text }),
+  });
+}
+
+export async function getPortfolio() {
+  return fetchAPI<any>("/portfolio/overview");
+}
+
+export async function getBureauLag(personaId: string) {
+  return fetchAPI<any>(`/portfolio/bureau-lag/${personaId}`);
+}
+
+export async function getSubscriptions(personaId: string) {
+  return fetchAPI<any>(`/subscriptions/${personaId}`);
 }
 
 export async function loginBankOfficer(officerId = "SBI-OFFICER-7891", pin = "889900") {
@@ -173,8 +259,6 @@ export async function switchPersona(personaId: string) {
 
 // ── Journey Endpoints ────────────────────────────────────────
 
-// (verifyOtp defined above with auth token handling)
-
 export async function getKycDetails(personaId: string) {
   return fetchAPI<any>(`/journey/kyc/${personaId}`);
 }
@@ -190,11 +274,11 @@ export async function getJourneyState(personaId: string) {
   return fetchAPI<any>(`/journey/state/${personaId}`);
 }
 
-export async function uploadBankStatement(file: File, personaId = "custom_user", fullName = "", phone = "", password = "") {
+export async function uploadBankStatement(file: File, personaId = "custom_user", fullName = "", phone = "+91 98980 12345", password = "") {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("persona_id", personaId);
-  formData.append("full_name", fullName);
+  if (fullName) formData.append("full_name", fullName);
   formData.append("phone", phone);
   if (password) formData.append("password", password);
 
@@ -293,4 +377,3 @@ export async function deleteBankScheme(schemeId: string) {
     method: "DELETE",
   });
 }
-

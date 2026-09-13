@@ -31,6 +31,8 @@ PERSONAS_DIR = Path(__file__).parent / "personas"
 
 # In-memory consent store (for hackathon — production would use DB)
 _consent_store: dict[str, dict] = {}
+_custom_personas: dict[str, dict] = {}
+_custom_fi_data: dict[str, FIDataResponse] = {}
 
 
 class RebitMockAAProvider(AAProvider):
@@ -44,6 +46,41 @@ class RebitMockAAProvider(AAProvider):
     - 100% reliable — no external API dependencies
     - Deterministic — same persona always returns same data
     """
+
+    @classmethod
+    def register_custom_persona(cls, persona_id: str, profile: dict, fi_data: FIDataResponse):
+        """Register a dynamically uploaded bank statement as an active AA persona."""
+        _custom_fi_data[persona_id] = fi_data
+        _custom_personas[persona_id] = {
+            "persona_id": persona_id,
+            "profile": profile,
+            "accounts": [
+                {
+                    "fip_id": a.fip_id,
+                    "account_type": a.account_type,
+                    "masked_number": a.masked_number,
+                    "branch": a.branch,
+                    "ifsc": a.ifsc,
+                    "current_balance": a.current_balance,
+                }
+                for a in fi_data.accounts
+            ],
+            "transactions": [
+                {
+                    "id": t.id,
+                    "type": t.type,
+                    "mode": t.mode,
+                    "amount": t.amount,
+                    "balance_after": t.balance_after,
+                    "narration": t.narration,
+                    "merchant_name": t.merchant_name,
+                    "category": t.category,
+                    "transaction_date": t.transaction_date.isoformat(),
+                    "reference_id": t.reference_id,
+                }
+                for t in fi_data.transactions
+            ]
+        }
 
     def __init__(self):
         self._personas = self._load_personas()
@@ -60,6 +97,8 @@ class RebitMockAAProvider(AAProvider):
 
     def get_persona(self, persona_id: str) -> dict:
         """Get a specific persona by ID."""
+        if persona_id in _custom_personas:
+            return _custom_personas[persona_id]
         if persona_id not in self._personas:
             # Reload in case new files were added
             self._personas = self._load_personas()
@@ -175,6 +214,9 @@ class RebitMockAAProvider(AAProvider):
         Returns ReBIT-spec-compliant account and transaction data.
         Supports both curated Bharat personas and uploaded user bank statements.
         """
+        if persona_id in _custom_fi_data:
+            return _custom_fi_data[persona_id]
+
         # Check if consent is approved
         if consent_id and not consent_id.startswith("CNST-DEMO"):
             consent = _consent_store.get(consent_id)

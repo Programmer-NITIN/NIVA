@@ -592,12 +592,15 @@ async def record_empathetic_action(req: EmpatheticActionRequest):
     }
 
 
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+ALLOWED_EXT = {".csv",".xlsx",".xls",".pdf"}
+
 @router.post("/upload-statement")
 async def upload_bank_statement(
     file: UploadFile = File(...),
     persona_id: str = Form("custom_user"),
     full_name: str = Form(""),
-    phone: str = Form(""),
+    phone: str = Form("+91 98980 12345"),
     password: str = Form(""),
 ):
     """
@@ -605,27 +608,37 @@ async def upload_bank_statement(
     and compute live Financial Digital Twin + Responsible Gate telemetry.
     PDF statements may be password-protected (e.g., first 4 chars of name + DOB).
     """
+    # guardrails
+    persona_id = str(persona_id.default if hasattr(persona_id, "default") else persona_id)
+    full_name = str(full_name.default if hasattr(full_name, "default") else full_name)
+    phone = str(phone.default if hasattr(phone, "default") else phone)
+    password = str(password.default if hasattr(password, "default") else password)
+
+    if file.filename and not any(file.filename.lower().endswith(ext) for ext in ALLOWED_EXT):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXT)}")
     try:
         content = await file.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_UPLOAD_BYTES//(1024*1024)} MB.")
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded.")
         pdf_password = password if password else None
         fi_data = BankStatementParser.parse_csv_or_excel(content, file.filename or "statement.csv", password=pdf_password)
         
         meta = getattr(fi_data, "metadata", None) or {}
-        extracted_holder = meta.get("holder_name")
-        extracted_phone = meta.get("mobile")
-        extracted_bank = meta.get("bank_name") or file.filename.split('.')[0].replace('_', ' ').title()
-        extracted_branch = meta.get("branch") or "Main Branch"
-        extracted_ifsc = meta.get("ifsc")
-        extracted_acct = meta.get("account_number")
-        extracted_masked = meta.get("masked_number") or (f"XXXX-XXXX-{extracted_acct[-4:]}" if extracted_acct and len(extracted_acct) >= 4 else "XXXX-XXXX-9918")
+        extracted_holder = meta.get("customer_name") or meta.get("holder_name")
+        extracted_phone = meta.get("mobile") or (phone if phone and phone != "+91 98765 00000" else None) or "+91 98980 12345"
+        extracted_bank = meta.get("bank_name") or (file.filename.split('.')[0].replace('_', ' ').title() + " Bank")
+        extracted_branch = meta.get("branch") or (fi_data.accounts[0].branch if fi_data.accounts and hasattr(fi_data.accounts[0], 'branch') else "Main Branch")
+        extracted_ifsc = meta.get("ifsc") or (fi_data.accounts[0].ifsc if fi_data.accounts and hasattr(fi_data.accounts[0], 'ifsc') else "SBIN0001234")
+        extracted_acct = meta.get("account_number") or meta.get("account_no") or (fi_data.accounts[0].masked_number if fi_data.accounts else "9918")
+        extracted_masked = meta.get("masked_account") or meta.get("masked_number") or (f"XXXX-XXXX-{str(extracted_acct)[-4:]}" if extracted_acct and len(str(extracted_acct)) >= 4 else "XXXX-XXXX-9918")
 
         resolved_name = (full_name or "").strip()
-        if not resolved_name or resolved_name == "Kailash Verma":
+        if not resolved_name or resolved_name in ("Kailash Verma", "Verified Customer"):
             resolved_name = extracted_holder or f"{extracted_bank} Account Holder"
 
-        resolved_phone = (phone or "").strip()
-        if not resolved_phone or resolved_phone == "+91 98765 00000":
-            resolved_phone = extracted_phone or "+91 98765 00000"
+        resolved_phone = extracted_phone
 
         # Register custom KYC entry
         profile_entry = {
@@ -636,7 +649,7 @@ async def upload_bank_statement(
             "pan": meta.get("pan", "BKPVR9918K"),
             "dob": "1988-05-18",
             "gender": "Verified",
-            "address": f"{extracted_branch}, India" if extracted_branch != "Main Branch" else "Verified Banking Address, India",
+            "address": meta.get("address") or (f"{extracted_branch}, India" if extracted_branch != "Main Branch" else "Verified Banking Address, India"),
             "kyc_source": f"Real Statement Verified ({file.filename})",
             "verification_timestamp": datetime.utcnow().isoformat() + "Z",
             "occupation": "Account Holder",
@@ -660,6 +673,20 @@ async def upload_bank_statement(
             save_user_profile(persona_id, profile_entry)
         except Exception as e:
             logger.warning(f"[NIVA Journey] Failed to save profile to Firestore for {persona_id}: {e}")
+
+        # Register custom persona in AA provider for downstream ML endpoints
+        from app.providers.aa.mock_rebit import RebitMockAAProvider
+        RebitMockAAProvider.register_custom_persona(
+            persona_id=persona_id,
+            profile={
+                "name": resolved_name,
+                "phone": resolved_phone,
+                "description": f"Account holder at {extracted_bank}",
+                "monthly_income": 65000,
+                "stress_profile": "dynamic_upload",
+            },
+            fi_data=fi_data,
+        )
 
         # Register and compute twin
         twin = twin_service.register_uploaded_statement(persona_id, fi_data, resolved_name)
@@ -702,11 +729,16 @@ async def upload_bank_statement(
         return {
             "status": "success",
             "filename": file.filename,
+            "customer_name": resolved_name,
+            "bank_name": extracted_bank,
+            "account_number": extracted_masked,
+            "ifsc": extracted_ifsc,
+            "branch": extracted_branch,
             "transactions_parsed": len(fi_data.transactions),
             "date_range_start": fi_data.data_range_start.isoformat(),
             "date_range_end": fi_data.data_range_end.isoformat(),
             "persona_id": persona_id,
-            "twin": twin,
+            "kyc": PERSONA_KYC[persona_id],
         }
     except Exception as e:
         print(f"[NIVA] Error processing uploaded statement: {e}", flush=True)

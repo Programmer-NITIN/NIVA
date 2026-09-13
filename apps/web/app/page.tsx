@@ -98,50 +98,49 @@ export default function CustomerOnboardingPage() {
     }
   }, []);
 
-  // Handle Send OTP
-  function handleSendOtp() {
+  // Handle Send OTP — real backend + dev OTP display
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+
+  async function handleSendOtp() {
     if (phone.replace(/\D/g, "").length < 10) return;
+    setOtpLoading(true);
+    try {
+      const r:any = await (await import("@/lib/api")).sendOtp(phone);
+      if (r.dev_otp) setDevOtp(r.dev_otp);
+    } catch { /* allow anyway */ }
     setOtpSent(true);
+    setOtpLoading(false);
   }
 
-  // Handle OTP verification
+  // Handle OTP verification — real JWT
   async function handleVerifyOtp() {
     if (otp.length !== 6) return;
     setOtpLoading(true);
     try {
-      const personaId = "custom_user";
-      const res = await verifyOtp(phone, otp, personaId);
-      setOtpVerified(true);
-      if (res.kyc_profile) {
-        setKyc(res.kyc_profile);
-      } else if (res.kyc) {
-        setKyc(res.kyc);
-      } else {
-        try {
-          const kycRes = await getKycDetails(personaId);
-          setKyc(kycRes);
-        } catch {
-          setKyc({
-            full_name: "Verified User",
-            masked_aadhaar: "XXXX-XXXX-" + phone.slice(-4),
-            pan: "XXXXX0000X",
-            occupation: "Account Holder",
-            bank_linked: "Linked via OTP",
-          });
-        }
+      const matchedKey = Object.keys(DEMO_PERSONAS).find(
+        (k) => DEMO_PERSONAS[k]?.phone?.replace(/\D/g, "") === phone.replace(/\D/g, "")
+      );
+      const personaId = matchedKey || "custom_user";
+      // try new auth first
+      try {
+        const { verifyOtpNew } = await import("@/lib/api");
+        await verifyOtpNew(phone, otp);
+      } catch (e:any) {
+        // fallback to legacy journey verify
+        const res = await verifyOtp(phone, otp, personaId);
+        if (res.kyc_profile) { setKyc(res.kyc_profile); setOtpVerified(true); setTimeout(()=>setStep(2),400); return; }
       }
-      setTimeout(() => setStep(2), 600);
-    } catch {
-      // Graceful fallback — still let user proceed
+      // fetch KYC after real auth
+      try {
+        const kycRes = await getKycDetails(personaId);
+        setKyc(kycRes);
+      } catch {
+        setKyc({ full_name: "Verified User", masked_aadhaar: "XXXX-XXXX-" + phone.slice(-4), pan: "XXXXX0000X", occupation: "Account Holder", bank_linked: "Verified via OTP" });
+      }
       setOtpVerified(true);
-      setKyc({
-        full_name: "Verified User",
-        masked_aadhaar: "XXXX-XXXX-" + phone.slice(-4),
-        pan: "XXXXX0000X",
-        occupation: "Account Holder",
-        bank_linked: "Linked via OTP Verification",
-      });
-      setTimeout(() => setStep(2), 600);
+      setTimeout(() => setStep(2), 400);
+    } catch (e:any) {
+      alert(e.message || "OTP invalid");
     } finally {
       setOtpLoading(false);
     }
@@ -154,13 +153,17 @@ export default function CustomerOnboardingPage() {
       const res = await uploadBankStatement(
         file,
         "custom_user",
-        kyc?.full_name || "User",
+        "",
         phone
       );
       setUploadedSummary({
         filename: res.filename,
+        customer_name: res.customer_name,
+        bank_name: res.bank_name,
+        account_number: res.account_number,
         transactions_parsed: res.transactions_parsed,
         twin: res.financial_twin || res.twin,
+        kyc: res.kyc,
       });
     } catch {
       setUploadedSummary({
@@ -310,9 +313,9 @@ export default function CustomerOnboardingPage() {
 
     const sessionData = {
       personaId: resolvedPersonaId,
-      name: kyc?.full_name || personaData?.name || "User",
+      name: uploadedSummary?.customer_name || personaData?.name || "User",
       phone: phone,
-      bankName: ingestionMethod === "setu" ? (selectedBankObj?.name || "State Bank of India") : (personaData?.bank || selectedBankObj?.name || "Linked Bank"),
+      bankName: ingestionMethod === "setu" ? (selectedBankObj?.name || "State Bank of India") : (uploadedSummary?.bank_name || personaData?.bank || selectedBankObj?.name || "Linked Bank"),
       ingestionSource: ingestionMethod,
       monthlyIncome:
         ingestionMethod === "setu"
@@ -506,15 +509,16 @@ export default function CustomerOnboardingPage() {
                         {otpLoading ? "Verifying..." : (language === "hi" ? "सत्यापित करें →" : "Verify & Continue →")}
                       </button>
                     </div>
+                    {devOtp && <div style={{marginTop:8, fontSize:12, color:"var(--niva-positive)", fontFamily:"monospace"}}>Dev OTP: {devOtp} (auto-fill for demo)</div>}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 }}>
                       <button
-                        onClick={() => { setOtpSent(false); setOtp(""); }}
+                        onClick={() => { setOtpSent(false); setOtp(""); setDevOtp(null); }}
                         style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--niva-text-muted)", textDecoration: "underline" }}
                       >
                         ← Change number
                       </button>
                       <button
-                        onClick={() => setOtpSent(true)}
+                        onClick={async()=>{ const r:any = await (await import("@/lib/api")).sendOtp(phone); if(r.dev_otp) setDevOtp(r.dev_otp); setOtpSent(true); }}
                         style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--niva-deep-forest)", fontWeight: 600 }}
                       >
                         Resend OTP

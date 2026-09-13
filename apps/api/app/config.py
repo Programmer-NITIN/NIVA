@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Firebase
     firebase_project_id: str = "niva-banking-daiict"
     firebase_credentials_path: Optional[str] = None
-    firebase_api_key: Optional[str] = "AIzaSyCbmqNrYcGvmGmxljOJ5QvS8gan_7M645c"
+    firebase_api_key: Optional[str] = None
     firebase_auth_domain: Optional[str] = "niva-banking-daiict.firebaseapp.com"
     firebase_storage_bucket: Optional[str] = "niva-banking-daiict.firebasestorage.app"
     firebase_messaging_sender_id: Optional[str] = "36229979845"
@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     setu_product_instance_id: Optional[str] = None
 
     # LLM
-    llm_provider: str = "gemini"  # "gemini" | "groq"
+    llm_provider: str = "groq"  # "gemini" | "groq"
     gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    groq_model: str = "openai/gpt-oss-120b"
 
     # Auth
     secret_key: Optional[str] = None

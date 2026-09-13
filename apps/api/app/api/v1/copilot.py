@@ -6,17 +6,37 @@ Executes tool calls server-side with real financial data.
 Falls back to rule-based routing when Gemini API key is not set.
 """
 
+from typing import Optional, Any
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
-
-from app.providers.llm.gemini import generate_response
+from app.config import settings
 from app.services.twin import FinancialTwinService
 from app.services.gate import ResponsibleGateService
 
 router = APIRouter()
 twin_service = FinancialTwinService()
 gate_service = ResponsibleGateService()
+
+
+async def _get_llm_response(message: str, persona_id: str, language: str = "en", tool_results: Optional[dict] = None) -> dict:
+    """Route LLM generation to Groq (openai/gpt-oss-120b) or fallback to Gemini."""
+    if settings.llm_provider == "groq" or (settings.groq_api_key and settings.llm_provider != "gemini"):
+        try:
+            from app.providers.llm.groq import generate_response as groq_gen
+            res = await groq_gen(message, persona_id, language, tool_results)
+            if res.get("reply") or res.get("tool_calls"):
+                return res
+        except Exception as e:
+            print(f"[NIVA Copilot] Groq routing notice: {e}", flush=True)
+
+    # Fallback to Gemini provider
+    try:
+        from app.providers.llm.gemini import generate_response as gemini_gen
+        return await gemini_gen(message, persona_id, language, tool_results)
+    except Exception as e:
+        print(f"[NIVA Copilot] Gemini fallback notice: {e}", flush=True)
+        from app.providers.llm.groq import _fallback_response
+        return _fallback_response(message, language)
 
 
 class ChatRequest(BaseModel):
@@ -38,13 +58,13 @@ async def chat(request: ChatRequest):
     Send a message to NIVA copilot.
     
     Flow:
-    1. Message → Gemini (or fallback) → may return tool_calls
-    2. If tool_calls → execute them server-side with real data
-    3. Feed tool results back to Gemini for natural language response
-    4. Return final response with data
+    1. Message → Groq (openai/gpt-oss-120b) → may return tool_calls
+    2. If tool_calls → execute them server-side with real financial data
+    3. Feed tool results back to Groq for natural language response
+    4. Return final formatted response with data
     """
     # Step 1: Get initial response (may contain tool calls)
-    result = await generate_response(
+    result = await _get_llm_response(
         message=request.message,
         persona_id=request.persona_id,
         language=request.language,
@@ -61,15 +81,19 @@ async def chat(request: ChatRequest):
                 request.persona_id,
             )
 
-        # Step 3: Feed data back to Gemini for natural language
-        final = await generate_response(
+        # Step 3: Feed data back to Groq for natural language
+        if result["tool_calls"]:
+            tool_data["tool_name"] = result["tool_calls"][0]["name"]
+            tool_data["args"] = result["tool_calls"][0].get("args", {})
+
+        final = await _get_llm_response(
             message=request.message,
             persona_id=request.persona_id,
             language=request.language,
             tool_results=tool_data,
         )
 
-        # If Gemini gives a response, use it; otherwise format the data
+        # If Groq gives a response, use it; otherwise format the data
         reply = final.get("reply") or _format_tool_result(
             result["tool_calls"][0]["name"],
             tool_data,
@@ -85,7 +109,7 @@ async def chat(request: ChatRequest):
 
     # Direct response (no tool calls needed)
     return ChatResponse(
-        reply=result.get("reply", "I'm not sure how to help with that. Try asking about your spending, affordability, or financial health."),
+        reply=result.get("reply", "### 🛡️ NIVA Financial Copilot\n\nI am your responsible financial copilot. Try asking about your spending, affordability, or financial emergency buffer."),
         language=result.get("language", request.language),
         tool_calls=[],
     )

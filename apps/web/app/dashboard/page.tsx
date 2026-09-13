@@ -39,7 +39,10 @@ import {
   SettingsIcon,
   RefreshCwIcon,
   IdCardIcon,
+  LogOutIcon,
+  UserIcon,
 } from "@/components/icons";
+import FormattedCopilotOutput from "@/components/FormattedCopilotOutput";
 
 type Language = "en" | "hi" | "gu";
 type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "pots" | "afford" | "subs" | "settings" | "raksha";
@@ -66,6 +69,21 @@ const DEFAULT_SESSION: CustomerSession = {
   essentialExpenses: 26300,
   balance: 50700,
 };
+
+function formatCustomerDisplayName(name: string): string {
+  if (!name) return "Account Holder";
+  const trimmed = name.trim();
+  // If in all caps like "ANITA SURESH DESAI", convert cleanly to Title Case "Anita Suresh Desai"
+  if (trimmed === trimmed.toUpperCase() && trimmed.length > 2) {
+    return trimmed
+      .toLowerCase()
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return trimmed;
+}
 
 const SHAP_FEATURE_INFO: Record<string, { label: string; desc: string }> = {
   merchant_category_entropy: {
@@ -295,25 +313,33 @@ export default function CustomerDashboardPage() {
       setLifeStage(stageRes);
       const rawAnomalies = anomRes?.flagged_transactions || spendRes?.anomalies_detected || [];
       setAnomalies(Array.isArray(rawAnomalies) ? rawAnomalies : []);
-      if (profileRes) {
-        setProfileData({
-          full_name: profileRes.full_name || session.name || "Customer",
-          phone: profileRes.phone || session.phone || "+91 98765 00000",
-          occupation: profileRes.occupation || "Account Holder",
-          address: profileRes.address || "Verified Banking Address, India",
-          dob: profileRes.dob || "1988-05-18",
-          gender: profileRes.gender || "Verified",
-          dependents: profileRes.dependents !== undefined ? profileRes.dependents : 2,
-          declared_income: profileRes.declared_income !== undefined ? profileRes.declared_income : (twinRes?.income?.monthly_income || session.monthlyIncome || 65000),
-          declared_essential_expenses: profileRes.declared_essential_expenses !== undefined ? profileRes.declared_essential_expenses : (twinRes?.expenses?.essential || session.essentialExpenses || 26300),
-          declared_monthly_emi: profileRes.declared_monthly_emi !== undefined ? profileRes.declared_monthly_emi : (twinRes?.debt?.total_emi || 14200),
-          target_buffer_months: profileRes.target_buffer_months !== undefined ? profileRes.target_buffer_months : 6,
-          risk_tolerance: profileRes.risk_tolerance || "moderate",
-          data_sync_frequency: profileRes.data_sync_frequency || "monthly",
-          allow_responsible_analysis: profileRes.allow_responsible_analysis !== undefined ? profileRes.allow_responsible_analysis : true,
-          language_preference: profileRes.language_preference || language,
-        });
-      }
+      const declaredInc = (profileRes?.declared_income !== undefined && profileRes?.declared_income !== null)
+        ? profileRes.declared_income
+        : (twinRes?.income?.monthly_income || session.monthlyIncome || 65000);
+      const declaredEss = (profileRes?.declared_essential_expenses !== undefined && profileRes?.declared_essential_expenses !== null)
+        ? profileRes.declared_essential_expenses
+        : (twinRes?.expenses?.essential || session.essentialExpenses || 26300);
+      const declaredEmi = (profileRes?.declared_monthly_emi !== undefined && profileRes?.declared_monthly_emi !== null)
+        ? profileRes.declared_monthly_emi
+        : (twinRes?.debt?.total_emi !== undefined ? twinRes.debt.total_emi : 0);
+
+      setProfileData({
+        full_name: profileRes?.full_name || session.name || "Customer",
+        phone: profileRes?.phone || session.phone || "+91 98765 00000",
+        occupation: profileRes?.occupation || "Account Holder",
+        address: profileRes?.address || "Verified Banking Address, India",
+        dob: profileRes?.dob || "1988-05-18",
+        gender: profileRes?.gender || "Verified",
+        dependents: profileRes?.dependents !== undefined ? profileRes.dependents : 2,
+        declared_income: declaredInc,
+        declared_essential_expenses: declaredEss,
+        declared_monthly_emi: declaredEmi,
+        target_buffer_months: profileRes?.target_buffer_months !== undefined ? profileRes.target_buffer_months : 6,
+        risk_tolerance: profileRes?.risk_tolerance || "moderate",
+        data_sync_frequency: profileRes?.data_sync_frequency || "monthly",
+        allow_responsible_analysis: profileRes?.allow_responsible_analysis !== undefined ? profileRes.allow_responsible_analysis : true,
+        language_preference: profileRes?.language_preference || language,
+      });
       if (potsRes?.pots) setPots(potsRes.pots);
       if (subsRes) setSubs(subsRes);
       if (shapRes?.ml_prediction) setShap(shapRes.ml_prediction);
@@ -378,22 +404,39 @@ export default function CustomerDashboardPage() {
       const res = await sendChatMessage(text, session.personaId, language);
       const reply = res.response || res.reply || "Based on your financial twin, taking an additional high-interest loan will breach your DTI limit. Instead, utilize the PM SVANidhi working capital scheme.";
       setCopilotResponse(reply);
-      speakText(reply);
+      // If previously speaking, stop it
+      stopSpeaking();
     } catch {
       const fallback = language === "hi"
         ? `आपके वित्तीय डिजिटल ट्विन के अनुसार, आपका अनिवार्य मासिक खर्च ₹${(twin?.expenses?.essential || session.essentialExpenses).toLocaleString("en-IN")} है। नया 36% ब्याज वाला असुरक्षित लोन लेने से आपका स्वास्थ्य स्कोर गिर जाएगा। हम PM SVANidhi सुरक्षित योजना का सुझाव देते हैं।`
         : `According to your Financial Digital Twin, your essential expenses are ₹${(twin?.expenses?.essential || session.essentialExpenses).toLocaleString("en-IN")}. Taking a high-interest unsecured loan will push your DTI ratio into critical danger. We recommend the pre-approved PM SVANidhi scheme instead.`;
       setCopilotResponse(fallback);
-      speakText(fallback);
+      stopSpeaking();
     } finally {
       setCopilotLoading(false);
+    }
+  }
+
+  function stopSpeaking() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
     }
   }
 
   function speakText(text: string) {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const cleanText = text
+        .replace(/###?\s*/g, "")
+        .replace(/\|/g, " ")
+        .replace(/[-*]\s+/g, "")
+        .replace(/\*\*/g, "")
+        .replace(/>\s*/g, "")
+        .replace(/---/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = language === "hi" ? "hi-IN" : language === "gu" ? "gu-IN" : "en-IN";
       utterance.rate = 0.95;
       utterance.onstart = () => setIsSpeaking(true);
@@ -566,38 +609,39 @@ export default function CustomerDashboardPage() {
                 <span>{language === "hi" ? "रक्षा" : language === "gu" ? "રક્ષા" : "Raksha"}</span>
               </button>
             </li>
-            <li>
-              <button
-                id="navbar-profile-settings-tab"
-                className={activeTab === "settings" ? "active" : ""}
-                onClick={() => setActiveTab("settings")}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <SettingsIcon size={14} color="currentColor" />
-                <span>{language === "hi" ? "प्रोफ़ाइल व सेटिंग्स" : language === "gu" ? "પ્રોફાઇલ અને સેટિંગ્સ" : "Profile & Settings"}</span>
-              </button>
-            </li>
           </ul>
 
           {/* Mobile: keep navbar brand + language, desktop tabs hidden via CSS; bottom nav handles navigation */}
           <div className="bottom-nav-spacer" style={{display:"none"}} />
 
-          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Language Selector */}
-            <div style={{ display: "flex", gap: 4 }}>
+          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {/* Language Segmented Control */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                background: "var(--niva-canvas-subtle)",
+                borderRadius: "var(--radius-pill)",
+                border: "1px solid var(--niva-border)",
+                padding: "2px",
+                height: 35,
+              }}
+            >
               {(["en", "hi", "gu"] as Language[]).map((l) => (
                 <button
                   key={l}
                   onClick={() => setLanguage(l)}
                   style={{
-                    padding: "4px 8px",
+                    padding: "2px 8px",
                     borderRadius: "var(--radius-pill)",
-                    border: language === l ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                    border: "none",
                     background: language === l ? "var(--niva-deep-forest)" : "transparent",
                     color: language === l ? "var(--niva-electric-lime)" : "var(--niva-text-muted)",
                     fontSize: 11,
-                    fontWeight: 700,
+                    fontWeight: language === l ? 700 : 500,
                     cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    lineHeight: "18px",
                   }}
                 >
                   {l === "en" ? "EN" : l === "hi" ? "हिन्दी" : "ગુજ"}
@@ -605,66 +649,224 @@ export default function CustomerDashboardPage() {
               ))}
             </div>
 
-            {/* Refresh Analysis Button (No Emoji) */}
+            {/* Refresh Analysis Button */}
             <button
               id="navbar-refresh-btn"
               onClick={handleRefreshAnalysis}
               disabled={refreshing}
               style={{
-                display: "flex",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                background: "var(--niva-deep-forest)",
-                color: "var(--niva-electric-lime)",
+                gap: 5,
+                height: 35,
+                padding: "0 12px",
+                background: "var(--niva-canvas)",
+                color: "var(--niva-deep-forest)",
                 borderRadius: "var(--radius-pill)",
-                border: "1px solid rgba(142,242,68,0.4)",
-                fontSize: 12,
-                fontWeight: 700,
+                border: "1px solid var(--niva-border)",
+                fontSize: 11.5,
+                fontWeight: 600,
                 cursor: "pointer",
-                transition: "all 0.2s ease",
+                transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = "var(--niva-deep-forest)";
+                e.currentTarget.style.background = "rgba(22, 51, 0, 0.04)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = "var(--niva-border)";
+                e.currentTarget.style.background = "var(--niva-canvas)";
               }}
               title="Refresh and analyze financial telemetry"
             >
               <RefreshCwIcon
-                size={13}
-                color="var(--niva-electric-lime)"
+                size={12}
+                color="var(--niva-deep-forest)"
                 className={refreshing ? "spin-animation" : ""}
               />
               <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
             </button>
 
-            {/* Customer Profile Pill & Logout */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: "1px solid var(--niva-border)" }}>
-              <button
-                onClick={() => setActiveTab("settings")}
+            {/* Visual Divider between Utility controls & User Identity */}
+            <div style={{ width: 1, height: 22, background: "var(--niva-border)", margin: "0 2px" }} />
+
+            {/* Customer Profile Button (Clicking directly opens Profile & Settings) */}
+            <button
+              id="navbar-customer-profile-btn"
+              onClick={() => setActiveTab(activeTab === "settings" ? "twin" : "settings")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                height: 35,
+                padding: "3px 12px 3px 4px",
+                background: activeTab === "settings" ? "var(--niva-deep-forest)" : "#ffffff",
+                color: activeTab === "settings" ? "#ffffff" : "var(--niva-obsidian)",
+                borderRadius: "var(--radius-pill)",
+                border: activeTab === "settings"
+                  ? "1.5px solid var(--niva-deep-forest)"
+                  : "1px solid rgba(22, 51, 0, 0.16)",
+                boxShadow: activeTab === "settings"
+                  ? "0 3px 12px rgba(22, 51, 0, 0.22), 0 0 0 2px rgba(142, 242, 68, 0.35)"
+                  : "0 1px 3px rgba(0, 0, 0, 0.04)",
+                cursor: "pointer",
+                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+              onMouseOver={(e) => {
+                if (activeTab !== "settings") {
+                  e.currentTarget.style.borderColor = "var(--niva-deep-forest)";
+                  e.currentTarget.style.background = "rgba(22, 51, 0, 0.03)";
+                  e.currentTarget.style.boxShadow = "0 2px 6px rgba(22, 51, 0, 0.08)";
+                }
+              }}
+              onMouseOut={(e) => {
+                if (activeTab !== "settings") {
+                  e.currentTarget.style.borderColor = "rgba(22, 51, 0, 0.16)";
+                  e.currentTarget.style.background = "#ffffff";
+                  e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.04)";
+                }
+              }}
+              title={
+                language === "hi"
+                  ? "प्रोफ़ाइल और विश्लेषण सेटिंग्स खोलें"
+                  : language === "gu"
+                  ? "પ્રોફાઇલ અને સેટિંગ્સ ખોલો"
+                  : "Click to open Profile & Financial Analysis Settings"
+              }
+            >
+              {/* Profile Avatar with initials */}
+              <div
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "5px 12px",
-                  background: activeTab === "settings" ? "var(--niva-deep-forest)" : "var(--niva-canvas-subtle)",
-                  color: activeTab === "settings" ? "var(--niva-electric-lime)" : "var(--niva-obsidian)",
-                  borderRadius: "var(--radius-pill)",
-                  border: activeTab === "settings" ? "1px solid var(--niva-electric-lime)" : "1px solid var(--niva-border)",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
+                  width: 27,
+                  height: 27,
+                  borderRadius: "50%",
+                  background:
+                    activeTab === "settings"
+                      ? "linear-gradient(135deg, #8ef244 0%, #6cd122 100%)"
+                      : "linear-gradient(135deg, #163300 0%, #295503 100%)",
+                  color: activeTab === "settings" ? "#0E1311" : "#8ef244",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  letterSpacing: "0.03em",
+                  flexShrink: 0,
+                  position: "relative",
+                  boxShadow: activeTab === "settings" ? "0 1px 4px rgba(0,0,0,0.15)" : "none",
                 }}
-                title="View & update profile and analysis settings"
               >
-                <span className="status-dot positive" />
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{session.name}</span>
-                <SettingsIcon size={13} color="currentColor" style={{ opacity: 0.7 }} />
-              </button>
-              <button
-                onClick={handleLogout}
-                title={t.logout}
+                {(session.name || "U")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w[0])
+                  .join("")
+                  .toUpperCase()}
+                {/* Live Online Presence Dot */}
+                <span
+                  style={{
+                    position: "absolute",
+                    bottom: -1,
+                    right: -1,
+                    width: 7.5,
+                    height: 7.5,
+                    borderRadius: "50%",
+                    background: "#10b981",
+                    border: "1.5px solid #ffffff",
+                    boxShadow: "0 0 4px rgba(16, 185, 129, 0.6)",
+                  }}
+                />
+              </div>
+
+              {/* Customer Name and KYC Badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 650,
+                    color: activeTab === "settings" ? "#ffffff" : "var(--niva-obsidian)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    maxWidth: 145,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {formatCustomerDisplayName(session.name)}
+                </span>
+                
+                {/* Verified KYC Tag */}
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    padding: "1.5px 5.5px",
+                    borderRadius: 4,
+                    background:
+                      activeTab === "settings"
+                        ? "rgba(142, 242, 68, 0.2)"
+                        : "rgba(22, 51, 0, 0.08)",
+                    color: activeTab === "settings" ? "#8ef244" : "var(--niva-deep-forest)",
+                    letterSpacing: "0.02em",
+                    flexShrink: 0,
+                    lineHeight: "13px",
+                  }}
+                >
+                  KYC ✓
+                </span>
+              </div>
+
+              {/* Settings Gear Icon with smooth rotation */}
+              <SettingsIcon
+                size={13.5}
+                color={activeTab === "settings" ? "#8ef244" : "var(--niva-text-muted)"}
                 style={{
-                  background: "none", border: "none", color: "var(--niva-text-muted)",
-                  fontSize: 12, cursor: "pointer", padding: "4px 8px", textDecoration: "underline",
+                  flexShrink: 0,
+                  transition: "transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: activeTab === "settings" ? "rotate(60deg)" : "rotate(0deg)",
                 }}
-              >
-                {language === "hi" ? "लॉगआउट" : language === "gu" ? "લોગઆઉટ" : "Logout"}
-              </button>
-            </div>
+              />
+            </button>
+
+            {/* Sleek Logout Button */}
+            <button
+              onClick={handleLogout}
+              title={t.logout}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 4.5,
+                height: 35,
+                padding: "0 11px",
+                borderRadius: "var(--radius-pill)",
+                border: "1px solid rgba(225, 29, 72, 0.2)",
+                background: "rgba(225, 29, 72, 0.04)",
+                color: "var(--niva-critical)",
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "rgba(225, 29, 72, 0.1)";
+                e.currentTarget.style.borderColor = "rgba(225, 29, 72, 0.35)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "rgba(225, 29, 72, 0.04)";
+                e.currentTarget.style.borderColor = "rgba(225, 29, 72, 0.2)";
+              }}
+            >
+              <LogOutIcon size={12.5} color="currentColor" />
+              <span>{language === "hi" ? "लॉगआउट" : language === "gu" ? "લોગઆઉટ" : "Logout"}</span>
+            </button>
           </div>
         </div>
       </nav>
@@ -692,7 +894,7 @@ export default function CustomerDashboardPage() {
                   </span>
                 </div>
                 <h1 className="headline-lg" style={{ color: "#ffffff" }}>
-                  {t.welcome}, {session.name}
+                  {t.welcome}, {formatCustomerDisplayName(session.name)}
                 </h1>
                 <p className="body-md" style={{ color: "rgba(255,255,255,0.8)", marginTop: 4 }}>
                   {t.twinActive}. {language === "hi" ? "आपकी वित्तीय सुरक्षा और आपातकालीन बफर की सीधी निगरानी।" : "Real-time AI financial monitoring protecting you from debt traps."}
@@ -1068,7 +1270,11 @@ export default function CustomerDashboardPage() {
                 <div className="card" style={{ textAlign: "center" }}>
                   <div className="label-sm text-muted">ESSENTIAL / TOTAL RATIO</div>
                   <div style={{ fontSize: 32, fontWeight: 800, color: "var(--niva-positive)", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-                    {Math.round(Number(spendingData?.essential_ratio ?? twin?.expenses?.essential_ratio ?? 71.1))}%
+                    {(() => {
+                      const r = Number(spendingData?.essential_ratio ?? twin?.expenses?.essential_ratio ?? 71.1);
+                      const normalized = r <= 1.0 && r > 0 ? r * 100 : r;
+                      return Math.round(normalized);
+                    })()}%
                   </div>
                   <div className="body-sm text-muted" style={{ marginTop: 4 }}>Safe RBI Envelope &lt; 75%</div>
                 </div>
@@ -1088,32 +1294,28 @@ export default function CustomerDashboardPage() {
                       <div key={i} style={{ padding: "10px 14px", background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
                         <div className="flex-between" style={{ marginBottom: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <strong style={{ fontSize: 13 }}>{catName}</strong>
+                            <span style={{ fontWeight: 700, fontSize: 13 }}>{catName}</span>
+                            {isSpike && (
+                              <span className="chip chip-warning" style={{ fontSize: 9, padding: "2px 6px" }}>
+                                Spike (+{trendVal}%)
+                              </span>
+                            )}
                             {c.is_essential && (
-                              <span style={{ fontSize: 10, padding: "1px 6px", background: "rgba(22,51,0,0.1)", color: "var(--niva-deep-forest)", borderRadius: 4, fontWeight: 600 }}>
+                              <span className="chip chip-neutral" style={{ fontSize: 9, padding: "2px 6px" }}>
                                 Essential
                               </span>
                             )}
-                            {isSpike && (
-                              <span style={{ fontSize: 10, padding: "1px 6px", background: "var(--niva-warning-bg)", color: "var(--niva-warning)", borderRadius: 4, fontWeight: 700 }}>
-                                Spike (+{Math.round(trendVal)}%)
-                              </span>
-                            )}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                              ₹{amt.toLocaleString("en-IN")}
-                            </span>
-                            <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>({pct.toFixed(1)}%)</span>
-                          </div>
+                          <span style={{ fontWeight: 800, fontSize: 13, color: "var(--niva-obsidian)", fontVariantNumeric: "tabular-nums" }}>
+                            ₹{amt.toLocaleString("en-IN")} <span style={{ fontWeight: 500, fontSize: 11, color: "var(--niva-text-muted)" }}>({pct}%)</span>
+                          </span>
                         </div>
-                        <div style={{ height: 6, background: "var(--niva-canvas-dim)", borderRadius: 3, overflow: "hidden" }}>
+                        <div className="progress-bar-bg" style={{ height: 6 }}>
                           <div
+                            className="progress-bar-fill"
                             style={{
-                              height: "100%",
-                              width: `${Math.min(100, pct * 1.5)}%`,
-                              background: isSpike ? "var(--niva-warning)" : "var(--niva-deep-forest)",
-                              borderRadius: 3,
+                              width: `${Math.min(100, Math.max(5, pct))}%`,
+                              background: c.is_essential ? "var(--niva-deep-forest)" : isSpike ? "var(--niva-warning)" : "var(--niva-electric-lime)",
                             }}
                           />
                         </div>
@@ -1123,73 +1325,46 @@ export default function CustomerDashboardPage() {
                 </div>
               </section>
 
-              {/* Anomaly Detection Alerts (Isolation Forest) */}
-              <section className="card" style={{ border: "1px solid var(--niva-border)" }}>
+              {/* ML Anomaly Alert Strip */}
+              <section className="card" style={{ border: anomalies.length > 0 ? "1px solid rgba(220,38,38,0.3)" : "1px solid var(--niva-border)" }}>
                 <div className="flex-between" style={{ marginBottom: 12 }}>
-                  <div className="flex-gap-sm">
-                    <AlertTriangleIcon size={18} color="var(--niva-warning)" />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <AlertTriangleIcon size={18} color={anomalies.length > 0 ? "var(--niva-danger)" : "var(--niva-warning)"} />
                     <h3 className="title-md">Isolation Forest Anomaly &amp; Outlier Alerts</h3>
                   </div>
-                  <span className="chip chip-neutral" style={{ fontSize: 11 }}>
-                    Dynamic Z-Score &gt; 2.5σ
-                  </span>
+                  <span className="chip chip-neutral" style={{ fontSize: 10 }}>Dynamic Z-Score &gt; 2.5σ</span>
                 </div>
                 <div className="stack-sm">
                   {anomalies.length > 0 ? (
-                    anomalies.map((anom: any, idx: number) => {
-                      const amt = Number(anom.amount) || 0;
-                      const cat = anom.category ? String(anom.category).toUpperCase() : "SPENDING";
-                      const desc = anom.description || anom.narration || anom.merchant_name || `Unusual Transaction in ${cat}`;
-                      const zScore = anom.z_score !== undefined && anom.z_score !== null ? `${Number(anom.z_score).toFixed(1)}σ Outlier` : "Flagged by Isolation Forest";
+                    anomalies.slice(0, 4).map((a: any, idx: number) => {
+                      const desc = a.narration || a.description || a.merchant_name || `Transaction #${idx + 1}`;
+                      const amt = Number(a.amount || 0);
+                      const z = Number(a.z_score || a.score || 0).toFixed(1);
                       return (
-                        <div
-                          key={idx}
-                          style={{
-                            padding: "12px 16px",
-                            borderRadius: "var(--radius-md)",
-                            background: "var(--niva-warning-bg)",
-                            border: "1px solid rgba(217,119,6,0.25)",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 12,
-                          }}
-                        >
+                        <div key={idx} style={{ padding: "10px 14px", background: "rgba(220,38,38,0.04)", borderRadius: "var(--radius-md)", border: "1px solid rgba(220,38,38,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-warning)" }}>
-                              ⚠️ {desc}
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
-                              ID: {anom.transaction_id} • Category: {cat} • Dynamic Anomaly Score: {zScore}
-                              {anom.transaction_date && ` • ${anom.transaction_date}`}
+                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-obsidian)" }}>{desc}</div>
+                            <div style={{ fontSize: 11, color: "var(--niva-danger)", marginTop: 2 }}>
+                              Statistical Outlier: {z}σ standard deviation spike vs baseline
                             </div>
                           </div>
-                          <div style={{ fontWeight: 800, fontSize: 16, color: "var(--niva-obsidian)", fontVariantNumeric: "tabular-nums" }}>
-                            ₹{amt.toLocaleString("en-IN")}
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: "var(--niva-danger)", fontVariantNumeric: "tabular-nums" }}>
+                              ₹{amt.toLocaleString("en-IN")}
+                            </div>
+                            <span className="chip chip-danger" style={{ fontSize: 9, padding: "2px 6px", marginTop: 3 }}>
+                              FLAGGED
+                            </span>
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <div style={{
-                      padding: "16px 20px",
-                      borderRadius: "var(--radius-md)",
-                      background: "rgba(142,242,68,0.08)",
-                      border: "1px solid rgba(22,51,0,0.15)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontSize: 24 }}>🛡️</span>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-deep-forest)" }}>
-                            All Transactions In-Envelope — Zero Statistical Anomalies
-                          </div>
-                          <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
-                            Isolation Forest and Dynamic Z-Score verified all debit transactions conform to your baseline spending envelopes.
-                          </div>
-                        </div>
+                    <div style={{ padding: "12px 14px", background: "rgba(26,107,60,0.05)", borderRadius: "var(--radius-md)", border: "1px solid rgba(26,107,60,0.15)", display: "flex", alignItems: "center", gap: 10 }}>
+                      <ShieldIcon size={18} color="var(--niva-positive)" />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-deep-forest)" }}>All Transactions In-Envelope — Zero Statistical Anomalies</div>
+                        <div style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Isolation Forest and Dynamic Z-Score verified all debit transactions conform to your baseline spending envelopes.</div>
                       </div>
                       <span className="chip chip-positive" style={{ fontSize: 11 }}>100% In-Envelope</span>
                     </div>
@@ -1203,26 +1378,48 @@ export default function CustomerDashboardPage() {
                   <h3 className="title-md">Upcoming Monthly Mandates &amp; Subscriptions</h3>
                   <span className="label-sm text-muted">AutoPay / NACH Monitored</span>
                 </div>
-                <div className="grid-3" style={{ gap: 12 }}>
-                  {[
-                    { label: "Apartment Rent", amount: 18000, due: "3rd of every month", status: "PAID" },
-                    { label: "Zerodha Wealth SIP", amount: 5000, due: "5th of every month", status: "PAID" },
-                    { label: "Electricity (BESCOM)", amount: 1850, due: "10th of every month", status: "UPCOMING" },
-                  ].map((m, idx) => (
-                    <div key={idx} style={{ padding: 14, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--niva-border)" }}>
-                      <div className="flex-between" style={{ marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>{m.due}</span>
-                        <span className={`chip ${m.status === "PAID" ? "chip-positive" : "chip-neutral"}`} style={{ fontSize: 9 }}>
-                          {m.status}
-                        </span>
+                {(() => {
+                  const activeMandates = (spendingData?.recurring_mandates && spendingData.recurring_mandates.length > 0)
+                    ? spendingData.recurring_mandates
+                    : (subs?.mandates && subs.mandates.length > 0)
+                    ? subs.mandates
+                    : [];
+
+                  if (activeMandates.length === 0) {
+                    return (
+                      <div style={{ padding: "24px 16px", textAlign: "center", background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px dashed var(--niva-border)" }}>
+                        <div style={{ fontSize: 20, marginBottom: 6 }}>🛡️</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "var(--niva-deep-forest)" }}>No Fixed Mandates or Recurring Debt Detected</div>
+                        <p className="body-xs text-muted" style={{ maxWidth: 460, margin: "6px auto 0" }}>
+                          100% In-Envelope — All detected transactions conform to flexible discretionary or ad-hoc essential spending with zero locked AutoPay commitments.
+                        </p>
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{m.label}</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
-                        ₹{m.amount.toLocaleString("en-IN")}
-                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid-3" style={{ gap: 12 }}>
+                      {activeMandates.map((m: any, idx: number) => {
+                        const dueText = m.due || (m.due_day ? `${m.due_day}${m.due_day === 1 ? "st" : m.due_day === 2 ? "nd" : m.due_day === 3 ? "rd" : "th"} of every month` : "Monthly Cycle");
+                        const statusText = m.status || "PAID";
+                        return (
+                          <div key={idx} style={{ padding: 14, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--niva-border)" }}>
+                            <div className="flex-between" style={{ marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>{dueText}</span>
+                              <span className={`chip ${statusText === "PAID" ? "chip-positive" : "chip-neutral"}`} style={{ fontSize: 9 }}>
+                                {statusText}
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{m.label}</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
+                              ₹{Number(m.amount || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
               </section>
             </div>
           )}
@@ -2031,34 +2228,19 @@ export default function CustomerDashboardPage() {
                   </button>
                 </div>
 
-                {/* Copilot Response Card */}
+                {/* Formatted Copilot Response Card */}
                 {copilotResponse && (
-                  <div style={{
-                    marginTop: 18, padding: "18px 22px", borderRadius: "var(--radius-md)",
-                    background: "var(--niva-canvas-subtle)", border: "1px solid var(--niva-border)",
-                    animation: "fadeSlideUp 0.3s ease forwards",
-                  }}>
-                    <div className="flex-between" style={{ marginBottom: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <BrainIcon size={18} color="var(--niva-deep-forest)" />
-                        <strong style={{ fontSize: 13 }}>NIVA Financial Advice:</strong>
-                      </div>
-                      <button
-                        onClick={() => speakText(copilotResponse)}
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          display: "flex", alignItems: "center", gap: 4, fontSize: 12,
-                          color: "var(--niva-deep-forest)", fontWeight: 600,
-                        }}
-                      >
-                        <VolumeIcon size={16} color="currentColor" />
-                        {isSpeaking ? (language === "hi" ? "बोल रहा है..." : "Speaking...") : (language === "hi" ? "दोबारा सुनें" : "Replay Audio")}
-                      </button>
-                    </div>
-                    <p className="body-md" style={{ color: "var(--niva-obsidian)", lineHeight: 1.6 }}>
-                      {copilotResponse}
-                    </p>
-                  </div>
+                  <FormattedCopilotOutput
+                    content={copilotResponse}
+                    language={language}
+                    isSpeaking={isSpeaking}
+                    onSpeak={speakText}
+                    onStopSpeak={stopSpeaking}
+                    onQuickPrompt={(p) => {
+                      setCopilotInput(p);
+                      handleSendCopilot(p);
+                    }}
+                  />
                 )}
               </section>
             </div>

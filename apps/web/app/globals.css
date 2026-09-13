@@ -705,12 +705,13 @@ body {
 }
 
 .navbar-inner {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
 
 .navbar-brand {
@@ -740,17 +741,17 @@ body {
 .navbar-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   list-style: none;
 }
 
 .navbar-tabs a,
 .navbar-tabs button {
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--niva-text-secondary);
-  padding: 7px 14px;
+  padding: 6px 11px;
   border-radius: var(--radius-pill);
   text-decoration: none;
   transition: all var(--transition-fast);
@@ -776,7 +777,8 @@ body {
 .navbar-right {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 /* ─── Bottom Nav — Wise mobile (icons + labels) ─────────────── */

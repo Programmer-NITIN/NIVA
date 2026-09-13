@@ -164,6 +164,7 @@ export default function CustomerOnboardingPage() {
         transactions_parsed: res.transactions_parsed,
         twin: res.financial_twin || res.twin,
         kyc: res.kyc,
+        persona_id: res.persona_id,
       });
     } catch {
       setUploadedSummary({
@@ -306,7 +307,7 @@ export default function CustomerOnboardingPage() {
     const resolvedPersonaId =
       ingestionMethod === "setu"
         ? (selectedBank === "hdfc" ? "anita_desai" : selectedBank === "bob" ? "vikram_patel" : "rajesh_sharma")
-        : (uploadedSummary ? "custom_user" : "custom_user");
+        : (uploadedSummary?.persona_id || "custom_user");
 
     const personaData = resolvedPersonaId && DEMO_PERSONAS[resolvedPersonaId] ? DEMO_PERSONAS[resolvedPersonaId] : null;
     const setuBal = setuData?.accounts?.[0]?.current_balance ?? (selectedBank === "hdfc" ? 184500 : selectedBank === "bob" ? 12300 : 50700);

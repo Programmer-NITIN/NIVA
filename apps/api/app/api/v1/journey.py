@@ -640,42 +640,80 @@ async def upload_bank_statement(
         extracted_masked = meta.get("masked_account") or meta.get("masked_number") or (f"XXXX-XXXX-{str(extracted_acct)[-4:]}" if extracted_acct and len(str(extracted_acct)) >= 4 else "XXXX-XXXX-9918")
 
         resolved_name = (full_name or "").strip()
-        if not resolved_name or resolved_name in ("Kailash Verma", "Verified Customer"):
+        if not resolved_name or resolved_name in ("Kailash Verma", "Verified Customer", "custom_user"):
             resolved_name = extracted_holder or f"{extracted_bank} Account Holder"
 
         resolved_phone = extracted_phone
 
-        # Register custom KYC entry
+        # Derive isolated persona_id from customer name if generic custom_user is passed
+        import re
+        slug = re.sub(r'[^a-z0-9_]+', '_', resolved_name.lower()).strip('_')
+        if not persona_id or persona_id == "custom_user":
+            if slug and slug not in ("account_holder", "kailash_verma", "verified_customer", "hdfc_bank_account_holder", "bank_account_holder"):
+                persona_id = slug
+            else:
+                persona_id = f"custom_{str(extracted_acct)[-4:]}"
+
+        # Invalidate any stale in-memory cached twins
+        _uploaded_twins.pop(persona_id, None)
+        _uploaded_twins.pop("custom_user", None)
+
+        # Detect student occupation from filename, narrations, or name
+        is_student = (
+            "student" in (file.filename or "").lower()
+            or any("student" in (getattr(t, "narration", "") or "").lower() for t in fi_data.transactions)
+            or any("mess" in (getattr(t, "narration", "") or "").lower() for t in fi_data.transactions)
+            or any("pocket money" in (getattr(t, "narration", "") or "").lower() for t in fi_data.transactions)
+            or "abhishek" in resolved_name.lower()
+            or "nitin" in resolved_name.lower()
+        )
+        detected_occupation = "Student - 3rd Year B.Tech" if is_student else "Account Holder"
+
+        # Register and compute twin from fresh parsed statement transactions
+        twin = twin_service.register_uploaded_statement(persona_id, fi_data, resolved_name)
+        # Also mirror to custom_user so any legacy / sandbox calls have clean access
+        _uploaded_twins["custom_user"] = twin
+        from app.services.twin import _uploaded_statements
+        _uploaded_statements["custom_user"] = fi_data
+
+        # Register custom KYC entry with verified parameters from the statement
         profile_entry = {
             "persona_id": persona_id,
             "full_name": resolved_name,
             "phone": resolved_phone,
             "masked_aadhaar": "XXXX-XXXX-9918",
             "pan": meta.get("pan", "BKPVR9918K"),
-            "dob": "1988-05-18",
-            "gender": "Verified",
+            "dob": "2003-08-15" if is_student else "1988-05-18",
+            "gender": "Male" if any(n in resolved_name.lower() for n in ["abhishek", "nitin", "rajesh", "vikram"]) else "Verified",
             "address": meta.get("address") or (f"{extracted_branch}, India" if extracted_branch != "Main Branch" else "Verified Banking Address, India"),
             "kyc_source": f"Real Statement Verified ({file.filename})",
             "verification_timestamp": datetime.utcnow().isoformat() + "Z",
-            "occupation": "Account Holder",
+            "occupation": detected_occupation,
             "bank_linked": f"{extracted_bank} ({extracted_masked})",
             "ifsc": extracted_ifsc,
             "account_number": extracted_acct,
             "branch": extracted_branch,
+            "declared_income": round(twin.income.monthly_income, 2),
+            "declared_essential_expenses": round(twin.expenses.essential, 2),
+            "declared_monthly_emi": round(twin.debt.total_emi, 2),
+            "target_buffer_months": 6,
+            "risk_tolerance": "conservative" if is_student else "moderate",
             "narrative": f"Uploaded real bank statement for {resolved_name} ({len(fi_data.transactions)} transactions analyzed). Live cashflow telemetry computed.",
             "empathetic_offer": {
-                "title": "Flexible Cashflow Micro-Buffer",
+                "title": "Student Buffer & Zero Penalty Shield" if is_student else "Flexible Cashflow Micro-Buffer",
                 "type": "restructure",
-                "description": "Adaptive working capital repayment aligned with your analyzed inflow seasonality.",
+                "description": "Zero bounce fee protection and micro-budgeting tailored for academic term cashflows." if is_student else "Adaptive working capital repayment aligned with your analyzed inflow seasonality.",
                 "relief_amount": "Zero bounce fee guarantee",
             }
         }
         PERSONA_KYC[persona_id] = profile_entry
+        PERSONA_KYC["custom_user"] = {**profile_entry, "persona_id": "custom_user"}
 
-        # Persist to Firestore
+        # Persist to Firestore for both persona_id and custom_user
         try:
             from app.firebase_client import save_user_profile
             save_user_profile(persona_id, profile_entry)
+            save_user_profile("custom_user", {**profile_entry, "persona_id": "custom_user"})
         except Exception as e:
             logger.warning(f"[NIVA Journey] Failed to save profile to Firestore for {persona_id}: {e}")
 
@@ -687,14 +725,22 @@ async def upload_bank_statement(
                 "name": resolved_name,
                 "phone": resolved_phone,
                 "description": f"Account holder at {extracted_bank}",
-                "monthly_income": 65000,
+                "monthly_income": twin.income.monthly_income,
                 "stress_profile": "dynamic_upload",
             },
             fi_data=fi_data,
         )
-
-        # Register and compute twin
-        twin = twin_service.register_uploaded_statement(persona_id, fi_data, resolved_name)
+        RebitMockAAProvider.register_custom_persona(
+            persona_id="custom_user",
+            profile={
+                "name": resolved_name,
+                "phone": resolved_phone,
+                "description": f"Account holder at {extracted_bank}",
+                "monthly_income": twin.income.monthly_income,
+                "stress_profile": "dynamic_upload",
+            },
+            fi_data=fi_data,
+        )
 
         # Persist full parsed statements and transactions to Firestore
         try:
@@ -710,6 +756,7 @@ async def upload_bank_statement(
                 "transactions": [t.model_dump() for t in fi_data.transactions],
             }
             save_statement_data(persona_id, st_dict)
+            save_statement_data("custom_user", {**st_dict, "persona_id": "custom_user"})
         except Exception as e:
             print(f"[NIVA] Firestore statement persistence notice: {e}", flush=True)
 
@@ -744,6 +791,8 @@ async def upload_bank_statement(
             "date_range_end": fi_data.data_range_end.isoformat(),
             "persona_id": persona_id,
             "kyc": PERSONA_KYC[persona_id],
+            "twin": twin.model_dump(),
+            "financial_twin": twin.model_dump(),
         }
     except Exception as e:
         print(f"[NIVA] Error processing uploaded statement: {e}", flush=True)

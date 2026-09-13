@@ -41,22 +41,46 @@ async def portfolio_overview():
 async def bureau_lag(persona_id: str):
     # returns Bureau stale vs AA live series for chart
     twin = await twin_service.compute_twin(persona_id)
-    # simulate bureau 38 days stale flat, AA live drawdown
     bureau = 760
-    aa_health_series = [twin.health_score+8, twin.health_score+5, twin.health_score+2, twin.health_score, twin.health_score-4]
-    # corresponds to T-90d ... T-0
+    hs = twin.health_score
+    is_stressed = twin.stress_score > 55 or hs < 60
+
+    if is_stressed:
+        aa_series = [
+            min(100, hs + 14),
+            min(100, hs + 10),
+            min(100, hs + 6),
+            min(100, hs + 2),
+            max(15, hs),
+        ]
+        insight = f"Traditional Bureau is flat at {bureau} due to 38-day reporting lag, but live AA cashflow captures recent drawdown ({hs}/100). NIVA alerts early before defaults occur."
+        delinquency_multiplier = 3.4
+        status = "stressed"
+    else:
+        aa_series = [
+            max(10, hs - 4),
+            max(10, hs - 2),
+            max(10, hs - 1),
+            hs,
+            hs,
+        ]
+        insight = f"CIBIL score updates every 38-45 days and lags behind. NIVA's Account Aggregator proves your real-time liquidity is healthy ({hs}/100), qualifying you for low-interest credit lines today."
+        delinquency_multiplier = 1.0
+        status = "healthy"
+
     return {
         "persona_id": persona_id,
         "bureau_score": bureau,
         "bureau_last_updated_days_ago": 38,
-        "aa_live_health": twin.health_score,
-        "delinquency_multiplier": 3.4 if twin.stress_score>60 else 1.2,
+        "aa_live_health": hs,
+        "status": status,
+        "delinquency_multiplier": delinquency_multiplier,
         "series": [
-            {"label": "T-90d", "bureau": bureau, "aa": aa_health_series[0]},
-            {"label": "T-60d", "bureau": bureau, "aa": aa_health_series[1]},
-            {"label": "T-38d", "bureau": bureau, "aa": aa_health_series[2]},
-            {"label": "T-21d", "bureau": bureau, "aa": aa_health_series[3]},
-            {"label": "Today", "bureau": bureau, "aa": aa_health_series[4]},
+            {"label": "T-90d", "bureau": bureau, "aa": aa_series[0]},
+            {"label": "T-60d", "bureau": bureau, "aa": aa_series[1]},
+            {"label": "T-38d", "bureau": bureau, "aa": aa_series[2]},
+            {"label": "T-21d", "bureau": bureau, "aa": aa_series[3]},
+            {"label": "Today", "bureau": bureau, "aa": aa_series[4]},
         ],
-        "insight": "Bureau flat at 760 while AA live shows -38% drawdown velocity over trailing 21 days."
+        "insight": insight,
     }

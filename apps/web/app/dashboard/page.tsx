@@ -59,6 +59,50 @@ const DEFAULT_SESSION: CustomerSession = {
   balance: 50700,
 };
 
+const SHAP_FEATURE_INFO: Record<string, { label: string; desc: string }> = {
+  merchant_category_entropy: {
+    label: "Spending Variety & Category Spread",
+    desc: "Balanced cadence across diverse merchant categories",
+  },
+  savings_rate: {
+    label: "Monthly Net Savings Buffer",
+    desc: "Surplus cash saved as liquid reserve after essentials",
+  },
+  dti_ratio: {
+    label: "Debt-to-Income (DTI) Leverage",
+    desc: "Monthly debt obligations compared to total inflow",
+  },
+  balance_trend_slope: {
+    label: "Account Balance Trajectory",
+    desc: "30-day liquid reserve growth velocity",
+  },
+  night_txn_ratio: {
+    label: "Late-Night Spending Discipline",
+    desc: "Transactions made during off-hours (11 PM - 5 AM)",
+  },
+  discretionary_spend_ratio: {
+    label: "Discretionary Spending Ratio",
+    desc: "Non-essential leisure and discretionary retail spend",
+  },
+  expense_trend_pct: {
+    label: "Monthly Expense Growth Trend",
+    desc: "Month-over-month trajectory in essential burn rate",
+  },
+  income_stability: {
+    label: "Monthly Inflow Stability",
+    desc: "Regularity of verified UPI business and salary credits",
+  },
+  bounce_count_30d: {
+    label: "AutoPay / Mandate Health",
+    desc: "Zero returns or failed NACH payment debits",
+  },
+  credit_limit_utilization: {
+    label: "Credit Line Utilization",
+    desc: "Outstanding balances vs total sanctioned limits",
+  },
+};
+
+
 const VERNACULAR = {
   en: {
     dashboardTitle: "Customer Financial Intelligence",
@@ -612,71 +656,163 @@ export default function CustomerDashboardPage() {
               {/* XAI & Bureau Intelligence */}
               {shap && (
                 <div className="card">
-                  <div className="flex-between" style={{marginBottom:10}}>
+                  <div className="flex-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                     <div>
                       <span className="label-sm text-muted">XAI • SHAP TREEEXPLAINER</span>
-                      <h3 className="title-md" style={{marginTop:2}}>Why Your Risk Looks Like This</h3>
+                      <h3 className="title-md" style={{ marginTop: 2 }}>Why Your Risk Looks Like This</h3>
                     </div>
-                    <span className="chip chip-neutral" style={{fontSize:11}}>RBI explainability ✓</span>
+                    <span className="chip chip-neutral" style={{ fontSize: 11 }}>RBI explainability ✓</span>
                   </div>
-                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
-                    {[...(shap.top_risk_factors||[]), ...(shap.top_protective_factors||[])].slice(0,5).map((f:any,i:number)=>{
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[...(shap.top_risk_factors || []), ...(shap.top_protective_factors || [])].slice(0, 5).map((f: any, i: number) => {
                       const val = (f.shap_value ?? f.value ?? f.impact ?? 0);
-                      const risk = Number(val) >= 0;
-                      const width = Math.min(100, Math.abs(Number(val))*220);
+                      const isRisk = Number(val) > 0;
+                      const featKey = String(f.feature || f.name || "").toLowerCase();
+                      const featMeta = SHAP_FEATURE_INFO[featKey] || {
+                        label: (f.feature || f.name || `Factor ${i + 1}`).toString().replace(/_/g, " ").toUpperCase(),
+                        desc: "Algorithmic feature contribution",
+                      };
+                      const absImpact = Math.abs(Number(val));
+                      const barWidth = Math.min(100, Math.max(12, absImpact * 180));
+
                       return (
-                        <div key={i} style={{display:"grid", gridTemplateColumns:"180px 1fr 70px", gap:12, alignItems:"center", padding:"10px 12px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
-                          <span style={{fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{(f.feature||f.name||`Factor ${i+1}`).toString().slice(0,30)}</span>
-                          <div style={{height:8, background:"var(--niva-canvas-dim)", borderRadius:999, overflow:"hidden"}}>
-                            <div style={{height:"100%", width:`${width}%`, background: risk?"var(--niva-critical)":"var(--niva-positive)", marginLeft: risk?"0":"auto", borderRadius:999}} />
+                        <div
+                          key={i}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "220px 1fr 140px",
+                            gap: 14,
+                            alignItems: "center",
+                            padding: "10px 14px",
+                            background: "var(--niva-canvas-subtle)",
+                            borderRadius: 10,
+                            border: "1px solid var(--niva-border)",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--niva-obsidian)" }}>
+                              {featMeta.label}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--niva-text-muted)", marginTop: 1 }}>
+                              {featMeta.desc}
+                            </div>
                           </div>
-                          <span style={{fontSize:12, fontWeight:700, textAlign:"right", color: risk?"var(--niva-critical)":"var(--niva-positive)"}}>{risk?"+":""}{Number(val).toFixed(3)}</span>
+
+                          <div style={{ height: 8, background: "var(--niva-canvas-dim)", borderRadius: 999, overflow: "hidden" }}>
+                            <div
+                              style={{
+                                height: "100%",
+                                width: `${barWidth}%`,
+                                background: isRisk ? "var(--niva-critical)" : "var(--niva-positive)",
+                                marginLeft: isRisk ? "0" : "auto",
+                                borderRadius: 999,
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ textAlign: "right" }}>
+                            <span
+                              className={`chip ${isRisk ? "chip-critical" : "chip-positive"}`}
+                              style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px" }}
+                            >
+                              {isRisk ? `+${Number(val).toFixed(2)} Risk` : `🛡️ -${absImpact.toFixed(2)} Buffer`}
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                  <div className="body-sm text-muted" style={{marginTop:8, fontSize:12}}>SHAP factors are deterministic contributions from XGBoost stress model — no LLM invention.</div>
+                  <div className="body-sm text-muted" style={{ marginTop: 10, fontSize: 12 }}>
+                    RBI-compliant deterministic contributions from XGBoost stress model. Green factors fortify your health score; red factors indicate areas needing envelope buffering.
+                  </div>
                 </div>
               )}
 
               {bureau && (
                 <div className="card">
-                  <div className="flex-between" style={{marginBottom:8}}>
+                  <div className="flex-between" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
                     <div>
                       <span className="label-sm text-muted">38-DAY BLIND WINDOW</span>
-                      <h3 className="title-md" style={{marginTop:2}}>Bureau vs AA — What Banks Miss</h3>
+                      <h3 className="title-md" style={{ marginTop: 2 }}>Bureau vs AA — What Traditional Banks Miss</h3>
                     </div>
-                    <span className="chip chip-critical" style={{fontSize:11}}>● 3.4× delinquency hidden</span>
+                    {bureau.status === "stressed" || Number(bureau.aa_live_health) < 65 ? (
+                      <span className="chip chip-critical" style={{ fontSize: 11 }}>
+                        ● {bureau.delinquency_multiplier || 3.4}× Risk Masked by Bureau Lag
+                      </span>
+                    ) : (
+                      <span className="chip chip-positive" style={{ fontSize: 11 }}>
+                        ✓ Real-Time AA Verified Healthy ({bureau.aa_live_health}/100)
+                      </span>
+                    )}
                   </div>
-                  <p className="body-sm text-muted" style={{marginBottom:12}}>Bureau {bureau.bureau_score} is flat for {bureau.bureau_last_updated_days_ago} days while AA live health is {bureau.aa_live_health}. {bureau.insight}</p>
-                  <div style={{display:"flex", gap:6, alignItems:"end", height:90, padding:"8px 6px", background:"var(--niva-canvas-subtle)", borderRadius:10, border:"1px solid var(--niva-border)"}}>
-                    {bureau.series.map((s:any,i:number)=>(
-                      <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
-                        <div style={{display:"flex", gap:3, alignItems:"end", height:62}}>
-                          <div title={`Bureau ${s.bureau}`} style={{width:10, height: `${(s.bureau/760)*36+6}px`, background:"var(--niva-border-strong)", borderRadius:4}} />
-                          <div title={`AA ${s.aa}`} style={{width:10, height: `${(s.aa/100)*60+4}px`, background: i===bureau.series.length-1?"var(--niva-critical)":"var(--niva-deep-forest)", borderRadius:4}} />
+                  <p className="body-sm text-muted" style={{ marginBottom: 12 }}>
+                    {bureau.insight || `Traditional CIBIL updates on a 38-day lag, while NIVA Account Aggregator reads live cashflow.`}
+                  </p>
+                  <div style={{ display: "flex", gap: 6, alignItems: "end", height: 90, padding: "8px 10px", background: "var(--niva-canvas-subtle)", borderRadius: 10, border: "1px solid var(--niva-border)" }}>
+                    {bureau.series.map((s: any, i: number) => {
+                      const isToday = i === bureau.series.length - 1;
+                      const isHealthyToday = isToday && (bureau.status === "healthy" || Number(bureau.aa_live_health) >= 65);
+                      const barColor = isToday
+                        ? isHealthyToday ? "var(--niva-positive)" : "var(--niva-critical)"
+                        : "var(--niva-deep-forest)";
+                      return (
+                        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                          <div style={{ display: "flex", gap: 4, alignItems: "end", height: 62 }}>
+                            <div title={`Bureau ${s.bureau}`} style={{ width: 12, height: `${(s.bureau / 760) * 36 + 6}px`, background: "var(--niva-border-strong)", borderRadius: 4 }} />
+                            <div title={`AA Live ${s.aa}`} style={{ width: 12, height: `${(s.aa / 100) * 60 + 4}px`, background: barColor, borderRadius: 4 }} />
+                          </div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--niva-text-muted)" }}>{s.label}</div>
                         </div>
-                        <div style={{fontSize:10, fontWeight:700, color:"var(--niva-text-muted)"}}>{s.label}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                  <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:10,fontSize:12}}><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-border-strong)",borderRadius:3,display:"inline-block"}}/> Bureau flat</span><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,background:"var(--niva-deep-forest)",borderRadius:3,display:"inline-block"}}/> AA live (ReBIT)</span></div>
+                  <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, fontSize: 12 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 10, height: 10, background: "var(--niva-border-strong)", borderRadius: 3, display: "inline-block" }} /> 
+                      Bureau flat (Static 760)
+                    </span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 10, height: 10, background: Number(bureau.aa_live_health) >= 65 ? "var(--niva-positive)" : "var(--niva-deep-forest)", borderRadius: 3, display: "inline-block" }} /> 
+                      AA live ReBIT ({bureau.aa_live_health}/100)
+                    </span>
+                  </div>
                 </div>
               )}
 
-              <div className="card" style={{border:"1px solid var(--niva-border)"}}>
-                <div className="flex-between" style={{marginBottom:8}}>
+              <div className="card" style={{ border: "1px solid var(--niva-border)", background: "var(--niva-canvas-subtle)" }}>
+                <div className="flex-between" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
                   <div>
                     <span className="label-sm text-muted">SMS-TO-TWIN • BHARAT INBOX PARSER</span>
-                    <h3 className="title-md" style={{marginTop:2}}>Forward Any Bank SMS</h3>
+                    <h3 className="title-md" style={{ marginTop: 2 }}>Instant Statement Sync via SMS</h3>
                   </div>
-                  <span className="chip chip-neutral" style={{fontSize:11}}>Supports all 6 banks</span>
+                  <span className="chip chip-neutral" style={{ fontSize: 11 }}>Supports 6 National Banks</span>
                 </div>
-                <p className="body-sm text-muted" style={{marginBottom:10}}>No statement download needed. Paste 1-5 SMS lines — we extract amount + credit/debit and immediately recompute your Digital Twin.</p>
-                <textarea value={smsText} onChange={e=>setSmsText(e.target.value)} placeholder={"Rs 42,000 credited to A/c XX1234 on 12-Sep-26 UPI Ref 123...\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill"} style={{width:"100%",minHeight:110,padding:"12px 14px",borderRadius:10,border:"1px solid var(--niva-border)", fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace", fontSize:13, lineHeight:1.5, background:"var(--niva-canvas-subtle)"}}/>
-                <div style={{marginTop:10, display:"flex", gap:8, flexWrap:"wrap"}}>
-                  <button className="btn btn-primary" onClick={async()=>{try{const r=await ingestSms(session.personaId,smsText); setSmsText(""); const msg=`Parsed ${r.transactions_parsed} SMS txns — Twin refreshed. Health ${r.twin?.health_score ?? ""}/100`; (window as any).__nivaToast?.(msg); fetchDashboardData(session.personaId);}catch(e:any){alert(e.message)}}}>Ingest SMS → Recompute Twin</button>
-                  <button className="btn btn-outline" onClick={()=>setSmsText("Rs 42,000 credited to A/c XX1234 on 12-Sep-26\nRs 3,850 debited UPI/DMART Groceries STATION RD\nRs 1,200 debited UPI/Torrent Power Elec Bill")}>Load Demo SMS</button>
+                <p className="body-sm text-muted" style={{ marginBottom: 10 }}>
+                  No PDF download needed. Paste recent bank SMS alerts to instantaneously update your Digital Twin cashflow.
+                </p>
+                <textarea
+                  value={smsText}
+                  onChange={e => setSmsText(e.target.value)}
+                  placeholder={"Rs 42,000 credited to A/c XX1234 on 12-Sep-26 UPI Ref 123...\nRs 3,850 debited UPI/DMART Groceries STATION RD"}
+                  style={{ width: "100%", minHeight: 70, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--niva-border)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.5, background: "var(--niva-canvas)" }}
+                />
+                <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn btn-primary btn-sm" onClick={async () => {
+                    try {
+                      const r = await ingestSms(session.personaId, smsText);
+                      setSmsText("");
+                      const msg = `Parsed ${r.transactions_parsed} SMS txns — Twin refreshed. Health ${r.twin?.health_score ?? ""}/100`;
+                      (window as any).__nivaToast?.(msg);
+                      fetchDashboardData(session.personaId);
+                    } catch (e: any) {
+                      alert(e.message);
+                    }
+                  }}>
+                    Sync SMS to Digital Twin →
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={() => setSmsText("Rs 42,000 credited to A/c XX1234 on 12-Sep-26\nRs 3,850 debited UPI/DMART Groceries STATION RD")}>
+                    Sample SMS
+                  </button>
                 </div>
               </div>
             </div>

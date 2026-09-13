@@ -99,5 +99,26 @@ class TransactionAnomalyDetector:
                 "risk_flag": risk_flag,
                 "z_score": round(z_score, 2),
             })
+        anomalies_count = sum(1 for r in results if r["is_anomaly"])
+        max_score = max((r["anomaly_score"] for r in results), default=0.0)
+
+        try:
+            from app.utils.terminal_logger import log_ml_model_run
+            log_ml_model_run(
+                model_name="Isolation Forest Anomaly & Fraud Engine",
+                task=f"Scan {len(transactions)} transactions for behavioral outliers & velocity surges",
+                inputs={
+                    "Transactions Evaluated": len(transactions),
+                    "Contamination Rate": "3.0%",
+                    "Features Scanned": "Amount Ratio, Sin/Cos Hour, Velocity 1h, New Beneficiary",
+                },
+                outputs={
+                    "Total Flagged": f"{anomalies_count} Suspicious",
+                    "Max Anomaly Score": f"{max_score:.4f}",
+                    "Detection Status": "FLAGGED ANOMALIES" if anomalies_count > 0 else "ALL CLEAR / NORMAL",
+                },
+            )
+        except Exception:
+            pass
 
         return results

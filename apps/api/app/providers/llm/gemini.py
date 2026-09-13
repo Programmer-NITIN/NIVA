@@ -13,11 +13,13 @@ from app.config import settings
 _model = None
 
 
-def _get_model():
-    """Lazy-initialize Gemini model."""
-    global _model
-    if _model is not None:
-        return _model
+_tool_model = None
+_text_model = None
+
+
+def _get_model(with_tools: bool = True):
+    """Lazy-initialize Gemini models (with tools or pure text)."""
+    global _tool_model, _text_model
 
     if not settings.gemini_api_key:
         return None
@@ -25,12 +27,15 @@ def _get_model():
     try:
         import google.generativeai as genai
         genai.configure(api_key=settings.gemini_api_key)
-        model_kwargs = {"system_instruction": SYSTEM_PROMPT}
-        try:
-            _model = genai.GenerativeModel("gemini-2.0-flash", **model_kwargs)
-        except TypeError:
-            _model = genai.GenerativeModel("gemini-2.0-flash")
-        return _model
+        if with_tools:
+            if _tool_model is None:
+                tools = [{"function_declarations": TOOL_DECLARATIONS}]
+                _tool_model = genai.GenerativeModel("gemini-3.6-flash", tools=tools)
+            return _tool_model
+        else:
+            if _text_model is None:
+                _text_model = genai.GenerativeModel("gemini-3.6-flash")
+            return _text_model
     except Exception as e:
         print(f"[NIVA] Gemini init failed: {e}")
         return None
@@ -57,18 +62,18 @@ TOOL_DECLARATIONS = [
         "name": "calculate_affordability",
         "description": "Calculate whether the user can afford a purchase given their current financial state. Returns exact balance analysis, emergency buffer impact, and safer alternatives.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {
                 "target_amount": {
-                    "type": "number",
+                    "type": "NUMBER",
                     "description": "The amount in INR the user wants to spend"
                 },
                 "delay_months": {
-                    "type": "integer",
+                    "type": "INTEGER",
                     "description": "Number of months to delay the purchase (0 = buy now)"
                 },
                 "description": {
-                    "type": "string",
+                    "type": "STRING",
                     "description": "What the user wants to buy"
                 }
             },
@@ -79,7 +84,7 @@ TOOL_DECLARATIONS = [
         "name": "get_spending_breakdown",
         "description": "Get the user's spending breakdown by category for the current month. Shows essential vs discretionary split with trends.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -87,7 +92,7 @@ TOOL_DECLARATIONS = [
         "name": "get_financial_health",
         "description": "Get the user's complete financial health including health score, stress score, emergency buffer, and stress factors.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -95,7 +100,7 @@ TOOL_DECLARATIONS = [
         "name": "get_stress_signals",
         "description": "Get the user's financial stress signals and what changed from their baseline behavior.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -103,10 +108,10 @@ TOOL_DECLARATIONS = [
         "name": "get_gate_verdict",
         "description": "Check why a product recommendation was suppressed or approved by the Responsible Gate.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {
                 "product_type": {
-                    "type": "string",
+                    "type": "STRING",
                     "description": "Product type: personal_loan, credit_card, emergency_fund, fixed_deposit, sip, health_insurance"
                 }
             },
@@ -126,10 +131,7 @@ async def generate_response(
     Generate a copilot response using Gemini with function calling.
     Returns: { reply: str, tool_calls: list, language: str }
     """
-    model = _get_model()
-
-    if model is None:
-        # Fallback to rule-based
+    if not getattr(settings, "gemini_api_key", None):
         return _fallback_response(message, language)
 
     try:
@@ -171,7 +173,9 @@ ML Financial Twin Intelligence:
             ml_context = ""
 
         # Build prompt with rich context
-        context = f"""User language preference: {language}
+        context = f"""{SYSTEM_PROMPT}
+
+User language preference: {language}
 Active persona: {persona_id}
 {ml_context}
 User message: {message}"""
@@ -179,10 +183,12 @@ User message: {message}"""
         if tool_results:
             context += f"\n\nTool results (use these EXACT numbers in your response):\n{json.dumps(tool_results, indent=2, default=str)}"
 
-        response = model.generate_content(
-            context,
-            tools=[{"function_declarations": TOOL_DECLARATIONS}] if not tool_results else None,
-        )
+        # Select tool-enabled model if initial call, or pure text model when feeding back tool results
+        model = _get_model(with_tools=not bool(tool_results))
+        if model is None:
+            return _fallback_response(message, language)
+
+        response = model.generate_content(context)
 
         # Check for function calls
         if response.candidates and response.candidates[0].content.parts:

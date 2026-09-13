@@ -71,6 +71,39 @@ async def extract_ml_features(persona_id: str) -> Dict[str, float]:
     total_expense = max(float(twin.expenses.total), 1.0)
     discretionary_ratio = float(twin.expenses.discretionary / total_expense)
 
+    # Compute real balance slope using linear regression on transaction balances
+    sorted_txns = sorted(txns, key=lambda x: x.transaction_date) if txns else []
+    valid_balances = [float(t.balance) for t in sorted_txns if hasattr(t, "balance") and t.balance is not None]
+    if len(valid_balances) >= 2:
+        n = len(valid_balances)
+        x_vals = list(range(n))
+        x_bar = sum(x_vals) / n
+        y_bar = sum(valid_balances) / n
+        denom = sum((x - x_bar) ** 2 for x in x_vals)
+        if denom > 0:
+            slope_per_txn = sum((x - x_bar) * (y - y_bar) for x, y in zip(x_vals, valid_balances)) / denom
+            txns_per_month = (n / 90.0) * 30.0 if n > 0 else 30.0
+            balance_trend_slope = round(slope_per_txn * txns_per_month, 1)
+        else:
+            balance_trend_slope = round(float(valid_balances[-1] - valid_balances[0]), 1)
+    else:
+        balance_trend_slope = round(float(monthly_inc - float(twin.expenses.total)), 1)
+
+    # Compute real new beneficiary percentage (new payee ratio in recent 30d vs earlier)
+    from datetime import timedelta
+    if sorted_txns:
+        latest_date = sorted_txns[-1].transaction_date
+        cutoff = latest_date - timedelta(days=30)
+        recent_debits = [t for t in sorted_txns if t.transaction_date >= cutoff and t.type == "DEBIT"]
+        baseline_debits = [t for t in sorted_txns if t.transaction_date < cutoff and t.type == "DEBIT"]
+        recent_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in recent_debits)
+        baseline_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in baseline_debits)
+        recent_payees.discard("")
+        baseline_payees.discard("")
+        new_beneficiary_pct = round(len(recent_payees - baseline_payees) / len(recent_payees), 4) if recent_payees else 0.0
+    else:
+        new_beneficiary_pct = 0.0
+
     return {
         "monthly_income": monthly_inc,
         "income_volatility_cv": income_cv,
@@ -79,11 +112,11 @@ async def extract_ml_features(persona_id: str) -> Dict[str, float]:
         "liquidity_buffer_days": liquidity_days,
         "discretionary_spend_ratio": discretionary_ratio,
         "late_mandate_count_90d": float(late_mandates),
-        "balance_trend_slope": -4500.0 if twin.expenses.trend > 15 else 1200.0,
+        "balance_trend_slope": balance_trend_slope,
         "expense_trend_pct": float(twin.expenses.trend),
         "upi_txns_per_day": round(len(txns) / 90.0, 2),
         "night_txn_ratio": round(night_count / total_txns, 4),
-        "new_beneficiary_pct": 0.08,
+        "new_beneficiary_pct": new_beneficiary_pct,
         "merchant_category_entropy": round(max(0.5, entropy), 4),
     }
 

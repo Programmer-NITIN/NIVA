@@ -8,6 +8,8 @@ import {
   getSpendingAnalysis,
   getMLAnomalies,
   getMLLifeStage,
+  getUserProfile,
+  updateUserProfile,
 } from "@/lib/api";
 import {
   ShieldIcon,
@@ -19,10 +21,13 @@ import {
   AlertTriangleIcon,
   FileTextIcon,
   BuildingBankIcon,
+  IdCardIcon,
+  RefreshCwIcon,
+  SettingsIcon,
 } from "@/components/icons";
 
 type Language = "en" | "hi" | "gu";
-type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot";
+type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "settings";
 
 interface CustomerSession {
   personaId: string;
@@ -150,6 +155,27 @@ export default function CustomerDashboardPage() {
   const [simulatedDrop, setSimulatedDrop] = useState(20);
   const [delayDays, setDelayDays] = useState(14);
 
+  // User Profile & Analysis Settings State
+  const [profileData, setProfileData] = useState<any>({
+    full_name: "",
+    phone: "",
+    occupation: "",
+    address: "",
+    dob: "",
+    gender: "",
+    dependents: 2,
+    declared_income: 65000,
+    declared_essential_expenses: 26300,
+    declared_monthly_emi: 14200,
+    target_buffer_months: 6,
+    risk_tolerance: "moderate",
+    data_sync_frequency: "monthly",
+    allow_responsible_analysis: true,
+    language_preference: "en",
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem("niva_customer_session");
@@ -163,21 +189,24 @@ export default function CustomerDashboardPage() {
     } catch {
       // ignore
     }
-    // No session found — redirect to onboarding login
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
-    }
+    // No session found — initialize default Rajesh Sharma demo session
+    setSession(DEFAULT_SESSION);
+    try {
+      localStorage.setItem("niva_customer_session", JSON.stringify(DEFAULT_SESSION));
+    } catch {}
+    fetchDashboardData(DEFAULT_SESSION.personaId);
   }, []);
 
   async function fetchDashboardData(personaId: string) {
     setLoading(true);
     try {
-      const [twinRes, recsRes, spendRes, stageRes, anomRes] = await Promise.all([
+      const [twinRes, recsRes, spendRes, stageRes, anomRes, profileRes] = await Promise.all([
         getFinancialTwin(personaId).catch(() => null),
         getRecommendations(personaId).catch(() => null),
         getSpendingAnalysis(personaId).catch(() => null),
         getMLLifeStage(personaId).catch(() => null),
         getMLAnomalies(personaId).catch(() => null),
+        getUserProfile(personaId).catch(() => null),
       ]);
       setTwin(twinRes);
       setRecommendations(recsRes);
@@ -186,10 +215,70 @@ export default function CustomerDashboardPage() {
       if (anomRes?.flagged_transactions) {
         setAnomalies(anomRes.flagged_transactions);
       }
+      if (profileRes) {
+        setProfileData({
+          full_name: profileRes.full_name || session.name || "Customer",
+          phone: profileRes.phone || session.phone || "+91 98765 00000",
+          occupation: profileRes.occupation || "Account Holder",
+          address: profileRes.address || "Verified Banking Address, India",
+          dob: profileRes.dob || "1988-05-18",
+          gender: profileRes.gender || "Verified",
+          dependents: profileRes.dependents !== undefined ? profileRes.dependents : 2,
+          declared_income: profileRes.declared_income !== undefined ? profileRes.declared_income : (twinRes?.income?.monthly_income || session.monthlyIncome || 65000),
+          declared_essential_expenses: profileRes.declared_essential_expenses !== undefined ? profileRes.declared_essential_expenses : (twinRes?.expenses?.essential || session.essentialExpenses || 26300),
+          declared_monthly_emi: profileRes.declared_monthly_emi !== undefined ? profileRes.declared_monthly_emi : (twinRes?.debt?.total_emi || 14200),
+          target_buffer_months: profileRes.target_buffer_months !== undefined ? profileRes.target_buffer_months : 6,
+          risk_tolerance: profileRes.risk_tolerance || "moderate",
+          data_sync_frequency: profileRes.data_sync_frequency || "monthly",
+          allow_responsible_analysis: profileRes.allow_responsible_analysis !== undefined ? profileRes.allow_responsible_analysis : true,
+          language_preference: profileRes.language_preference || language,
+        });
+      }
     } catch (err) {
       console.error("Error loading customer dashboard:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefreshAnalysis() {
+    setRefreshing(true);
+    try {
+      await fetchDashboardData(session.personaId);
+    } catch (err) {
+      console.error("Error refreshing analysis:", err);
+    } finally {
+      setRefreshing(false);
+      alert("successfully anylisi it");
+    }
+  }
+
+  async function handleSaveProfile() {
+    setSavingSettings(true);
+    try {
+      const res = await updateUserProfile(session.personaId, profileData);
+      setSettingsNotice(
+        language === "hi"
+          ? "प्रोफ़ाइल और वित्तीय विश्लेषण पैरामीटर सफलतापूर्वक सहेजे गए। AI डिजिटल ट्विन पुनः परिकलित हुआ।"
+          : language === "gu"
+          ? "પ્રોફાઇલ અને વિશ્લેષણ પરિમાણો સાચવવામાં આવ્યા. AI ડિજિટલ ટ્વીન અપડેટ થયું."
+          : "Profile & analysis parameters saved. AI Financial Digital Twin recalculated successfully."
+      );
+      if (res.recalculated_twin) {
+        setTwin(res.recalculated_twin);
+      }
+      if (profileData.full_name) {
+        const updatedSession = { ...session, name: profileData.full_name, monthlyIncome: profileData.declared_income, essentialExpenses: profileData.declared_essential_expenses };
+        setSession(updatedSession);
+        localStorage.setItem("niva_customer_session", JSON.stringify(updatedSession));
+      }
+      setTimeout(() => setSettingsNotice(null), 6000);
+    } catch (err: any) {
+      alert("Failed to update profile: " + (err.message || err));
+    } finally {
+      setSavingSettings(false);
     }
   }
 
@@ -306,6 +395,16 @@ export default function CustomerDashboardPage() {
                 {language === "hi" ? "NIVA साथी (Voice)" : language === "gu" ? "NIVA સાથી (Voice)" : "Ask NIVA"}
               </button>
             </li>
+            <li>
+              <button
+                className={activeTab === "settings" ? "active" : ""}
+                onClick={() => setActiveTab("settings")}
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <SettingsIcon size={14} color="currentColor" />
+                <span>{language === "hi" ? "प्रोफ़ाइल व सेटिंग्स" : language === "gu" ? "પ્રોફાઇલ અને સેટિંગ્સ" : "Profile & Settings"}</span>
+              </button>
+            </li>
           </ul>
 
           <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -331,16 +430,55 @@ export default function CustomerDashboardPage() {
               ))}
             </div>
 
+            {/* Refresh Analysis Button (No Emoji) */}
+            <button
+              id="navbar-refresh-btn"
+              onClick={handleRefreshAnalysis}
+              disabled={refreshing}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 14px",
+                background: "var(--niva-deep-forest)",
+                color: "var(--niva-electric-lime)",
+                borderRadius: "var(--radius-pill)",
+                border: "1px solid rgba(142,242,68,0.4)",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+              }}
+              title="Refresh and analyze financial telemetry"
+            >
+              <RefreshCwIcon
+                size={13}
+                color="var(--niva-electric-lime)"
+                className={refreshing ? "spin-animation" : ""}
+              />
+              <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
+            </button>
+
             {/* Customer Profile Pill & Logout */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: "1px solid var(--niva-border)" }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "4px 10px", background: "var(--niva-canvas-subtle)",
-                borderRadius: "var(--radius-pill)", border: "1px solid var(--niva-border)",
-              }}>
+              <button
+                onClick={() => setActiveTab("settings")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "5px 12px",
+                  background: activeTab === "settings" ? "var(--niva-deep-forest)" : "var(--niva-canvas-subtle)",
+                  color: activeTab === "settings" ? "var(--niva-electric-lime)" : "var(--niva-obsidian)",
+                  borderRadius: "var(--radius-pill)",
+                  border: activeTab === "settings" ? "1px solid var(--niva-electric-lime)" : "1px solid var(--niva-border)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+                title="View & update profile and analysis settings"
+              >
                 <span className="status-dot positive" />
                 <span style={{ fontSize: 12, fontWeight: 700 }}>{session.name}</span>
-              </div>
+                <SettingsIcon size={13} color="currentColor" style={{ opacity: 0.7 }} />
+              </button>
               <button
                 onClick={handleLogout}
                 title={t.logout}
@@ -386,19 +524,49 @@ export default function CustomerDashboardPage() {
                 </p>
               </div>
 
-              {/* Quick Health Summary Pill */}
-              <div style={{
-                background: "rgba(255,255,255,0.06)",
-                padding: "16px 20px", borderRadius: "var(--radius-md)",
-                border: "1px solid rgba(255,255,255,0.12)", textAlign: "center",
-              }}>
-                <div className="label-sm" style={{ color: "rgba(255,255,255,0.6)" }}>{t.healthScore}</div>
-                <div style={{ fontSize: 36, fontWeight: 800, color: "var(--niva-electric-lime)", fontVariantNumeric: "tabular-nums" }}>
-                  {twin?.health_score || 74}
-                  <span style={{ fontSize: 16, color: "rgba(255,255,255,0.5)" }}>/100</span>
-                </div>
-                <div style={{ fontSize: 11, color: "#6EE7B7", fontWeight: 600, marginTop: 2 }}>
-                  {twin?.stress_level === "low" ? "Financially Stable" : "Emergency Buffer Guarded"}
+              {/* Quick Health Summary Pill & Refresh Action */}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                <button
+                  id="welcome-refresh-btn"
+                  onClick={handleRefreshAnalysis}
+                  disabled={refreshing}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "rgba(142,242,68,0.15)",
+                    border: "1px solid rgba(142,242,68,0.4)",
+                    color: "var(--niva-electric-lime)",
+                    borderRadius: "var(--radius-pill)",
+                    padding: "10px 18px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Refresh and re-analyze financial data"
+                >
+                  <RefreshCwIcon
+                    size={16}
+                    color="var(--niva-electric-lime)"
+                    className={refreshing ? "spin-animation" : ""}
+                  />
+                  <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
+                </button>
+
+                <div style={{
+                  background: "rgba(255,255,255,0.06)",
+                  padding: "16px 20px", borderRadius: "var(--radius-md)",
+                  border: "1px solid rgba(255,255,255,0.12)", textAlign: "center",
+                }}>
+                  <div className="label-sm" style={{ color: "rgba(255,255,255,0.6)" }}>{t.healthScore}</div>
+                  <div style={{ fontSize: 36, fontWeight: 800, color: "var(--niva-electric-lime)", fontVariantNumeric: "tabular-nums" }}>
+                    {twin?.health_score || 74}
+                    <span style={{ fontSize: 16, color: "rgba(255,255,255,0.5)" }}>/100</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6EE7B7", fontWeight: 600, marginTop: 2 }}>
+                    {twin?.stress_level === "low" ? "Financially Stable" : "Emergency Buffer Guarded"}
+                  </div>
                 </div>
               </div>
             </div>
@@ -872,79 +1040,137 @@ export default function CustomerDashboardPage() {
           )}
 
           {/* ═══════════════ TAB 4: SAFE SCHEMES & ZERO PREDATORY NUDGES ═══════════════ */}
-          {activeTab === "schemes" && (
-            <div className="stack-lg">
-              <div className="flex-between" style={{ flexWrap: "wrap", gap: 8 }}>
+          {activeTab === "schemes" && (() => {
+            const allRecs = recommendations?.recommendations || [];
+            const approvedRecs = allRecs.filter((r: any) => r.decision === "RECOMMEND");
+            const suppressedRecs = allRecs.filter((r: any) => r.decision === "SUPPRESS");
+
+            return (
+              <div className="stack-lg">
+                <div className="flex-between" style={{ flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <h2 className="headline-sm">{t.safeSchemes}</h2>
+                    <p className="body-sm text-muted">
+                      Personalized schemes set by your bank and screened through the NIVA Responsible AI Gate. Zero predatory nudges.
+                    </p>
+                  </div>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 14px", borderRadius: "var(--radius-pill)",
+                    background: suppressedRecs.length > 0 ? "var(--niva-critical-bg)" : "var(--niva-positive-bg)",
+                    color: suppressedRecs.length > 0 ? "var(--niva-critical)" : "var(--niva-positive)",
+                    fontWeight: 700, fontSize: 12,
+                  }}>
+                    <ShieldIcon size={16} color="currentColor" />
+                    <span>{suppressedRecs.length} Predatory Offers Blocked by Gate</span>
+                  </div>
+                </div>
+
+                {/* Section 1: Pre-Approved & Recommended Bank Schemes */}
                 <div>
-                  <h2 className="headline-sm">{t.safeSchemes}</h2>
-                  <p className="body-sm text-muted">
-                    Screened strictly through the NIVA Responsible Gate. Zero predatory nudges, guaranteed RBI fair lending compliance.
-                  </p>
+                  <div className="label-sm text-muted" style={{ marginBottom: 10, fontWeight: 700 }}>
+                    AI-RECOMMENDED PRE-APPROVED BANK SCHEMES ({approvedRecs.length} AVAILABLE)
+                  </div>
+                  <div className="grid-3" style={{ gap: 16 }}>
+                    {approvedRecs.length > 0 ? (
+                      approvedRecs.map((rec: any, idx: number) => (
+                        <div
+                          key={rec.product_type || idx}
+                          style={{
+                            padding: 18,
+                            border: "1px solid var(--niva-border)",
+                            borderRadius: "var(--radius-md)",
+                            background: "var(--niva-canvas)",
+                            display: "flex",
+                            flexDirection: "column",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <div>
+                            <div className="flex-between" style={{ marginBottom: 8 }}>
+                              <span className="chip chip-positive">Pre-Approved</span>
+                              <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                                {rec.product_type?.replace(/_/g, " ").toUpperCase()}
+                              </span>
+                            </div>
+                            <h4 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+                              {rec.product_name}
+                            </h4>
+                            <p className="body-sm text-secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+                              {rec.gate_reason}
+                            </p>
+                            {rec.interest_rate_pct && (
+                              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-positive)", marginBottom: 8 }}>
+                                {rec.interest_rate_pct}% APR • Up to ₹{(rec.max_amount || 50000).toLocaleString("en-IN")}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            className="btn btn-primary"
+                            style={{ width: "100%", fontSize: 12, padding: "9px" }}
+                            onClick={() => alert(`Application submitted for ${rec.product_name}. Your State Bank of India advisor will reach out.`)}
+                          >
+                            Apply with 1-Click →
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="card" style={{ gridColumn: "span 3", textAlign: "center", padding: 24 }}>
+                        <p className="body-sm text-muted">Currently evaluating bank schemes for your profile. Click Refresh above to re-sync.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "6px 14px", borderRadius: "var(--radius-pill)",
-                  background: "var(--niva-critical-bg)", color: "var(--niva-critical)",
-                  fontWeight: 700, fontSize: 12,
-                }}>
-                  <ShieldIcon size={16} color="var(--niva-critical)" />
-                  {t.predatoryBlocked} (2 Blocked)
-                </div>
+
+                {/* Section 2: Blocked / Suppressed Predatory Products Drawer */}
+                {suppressedRecs.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <div className="label-sm text-muted" style={{ marginBottom: 10, fontWeight: 700, color: "var(--niva-critical)" }}>
+                      NIVA RESPONSIBLE GATE: SUPPRESSED PRODUCTS ({suppressedRecs.length} BLOCKED)
+                    </div>
+                    <div className="grid-2" style={{ gap: 16 }}>
+                      {suppressedRecs.map((rec: any, idx: number) => (
+                        <div
+                          key={rec.product_type || idx}
+                          style={{
+                            padding: 18,
+                            border: "1px dashed var(--niva-critical)",
+                            borderRadius: "var(--radius-md)",
+                            background: "var(--niva-critical-bg)",
+                          }}
+                        >
+                          <div className="flex-between" style={{ marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--niva-critical)", textTransform: "uppercase" }}>
+                              BLOCKED BY GUARDRAIL
+                            </span>
+                            <span style={{ fontSize: 11, color: "var(--niva-critical)", fontWeight: 600 }}>
+                              {rec.policy_id || "POL-402"}
+                            </span>
+                          </div>
+                          <h4 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--niva-critical)" }}>
+                            {rec.product_name}
+                          </h4>
+                          <p className="body-sm" style={{ color: "var(--niva-critical)", fontSize: 12, marginBottom: 10 }}>
+                            {rec.gate_reason}
+                          </p>
+                          {rec.alternative_action && (
+                            <div style={{ padding: 8, background: "rgba(255,255,255,0.7)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--niva-obsidian)", marginBottom: 8 }}>
+                              <strong>Safe Alternative:</strong> {rec.alternative_action}
+                            </div>
+                          )}
+                          {rec.interest_saved && (
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--niva-positive)" }}>
+                              Interest Saved from Overleveraging: ₹{rec.interest_saved.toLocaleString("en-IN")}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {/* Schemes Grid */}
-              <div className="grid-3" style={{ gap: 16 }}>
-                {/* Scheme 1: Pre-Approved PM SVANidhi */}
-                <div style={{ padding: 18, border: "1px solid var(--niva-border)", borderRadius: "var(--radius-md)", background: "var(--niva-canvas)" }}>
-                  <div className="flex-between" style={{ marginBottom: 8 }}>
-                    <span className="chip chip-positive">Pre-Approved</span>
-                    <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Govt Subsidized</span>
-                  </div>
-                  <h4 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>PM SVANidhi Working Capital</h4>
-                  <p className="body-sm text-secondary" style={{ marginBottom: 12 }}>
-                    Low-cost collateral-free working capital loan at 7% effective APR. 0% foreclosure penalty and interest subvention for digital UPI repayments.
-                  </p>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-positive)", marginBottom: 8 }}>₹20,000 Line</div>
-                  <button className="btn btn-primary" style={{ width: "100%", fontSize: 12, padding: "8px" }}>
-                    Apply with 1-Click →
-                  </button>
-                </div>
-
-                {/* Scheme 2: Emergency Buffer Micro-FD */}
-                <div style={{ padding: 18, border: "1px solid var(--niva-border)", borderRadius: "var(--radius-md)", background: "var(--niva-canvas)" }}>
-                  <div className="flex-between" style={{ marginBottom: 8 }}>
-                    <span className="chip chip-positive">Recommended</span>
-                    <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Emergency Cushion</span>
-                  </div>
-                  <h4 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Emergency Buffer Micro-FD</h4>
-                  <p className="body-sm text-secondary" style={{ marginBottom: 12 }}>
-                    Auto-sweep ₹1,500/month into an instant withdrawal liquid deposit yielding 7.2% APY without lock-in penalties or break charges.
-                  </p>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginBottom: 8 }}>₹1,500/mo Auto-Sweep</div>
-                  <button className="btn btn-outline" style={{ width: "100%", fontSize: 12, padding: "8px" }}>
-                    Start Buffer Deposit →
-                  </button>
-                </div>
-
-                {/* Scheme 3: Blocked Predatory Loan Showcase */}
-                <div style={{ padding: 18, border: "1px dashed var(--niva-critical)", borderRadius: "var(--radius-md)", background: "var(--niva-critical-bg)" }}>
-                  <div className="flex-between" style={{ marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--niva-critical)", textTransform: "uppercase" }}>
-                      🚫 Suppressed by Gate
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--niva-critical)" }}>Unsuitable</span>
-                  </div>
-                  <h4 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--niva-critical)" }}>Instant 36% Payday Loan</h4>
-                  <p className="body-sm" style={{ color: "var(--niva-critical)", marginBottom: 12 }}>
-                    Blocked to prevent debt trap. High APR creates non-linear default risk when DTI exceeds safe buffer.
-                  </p>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--niva-critical)" }}>
-                    Rule: Policy POL-402 (RBI Fair Practices Code §3.2)
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ═══════════════ TAB 5: ASK NIVA VOICE COPILOT WORKSPACE ═══════════════ */}
           {activeTab === "copilot" && (
@@ -1041,6 +1267,345 @@ export default function CustomerDashboardPage() {
                   </div>
                 )}
               </section>
+            </div>
+          )}
+
+          {/* ═══════════════ TAB 6: USER PROFILE & FINANCIAL ANALYSIS SETTINGS ═══════════════ */}
+          {activeTab === "settings" && (
+            <div className="stack-lg">
+              {/* Header Banner */}
+              <section className="card" style={{ background: "linear-gradient(135deg, var(--niva-deep-forest) 0%, #0d2818 100%)", color: "#ffffff", border: "1px solid var(--niva-border)" }}>
+                <div className="flex-between" style={{ flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <span className="chip" style={{ background: "rgba(142,242,68,0.15)", color: "var(--niva-electric-lime)", border: "1px solid rgba(142,242,68,0.3)", marginBottom: 8, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <SettingsIcon size={12} color="var(--niva-electric-lime)" />
+                      <span>{language === "hi" ? "नियंत्रण और पैरामीटर सेटिंग्स" : language === "gu" ? "નિયંત્રણ અને પરિમાણ સેટિંગ્સ" : "Customer Control Center"}</span>
+                    </span>
+                    <h2 className="headline-md" style={{ color: "#ffffff", marginTop: 4 }}>
+                      {language === "hi" ? "उपयोगकर्ता प्रोफ़ाइल और वित्तीय विश्लेषण सेटिंग्स" : language === "gu" ? "વપરાશકર્તા પ્રોફાઇલ અને વિશ્લેષણ સેટિંગ્સ" : "User Profile & Financial Analysis Settings"}
+                    </h2>
+                    <p className="body-sm" style={{ color: "rgba(255,255,255,0.8)", maxWidth: 680, marginTop: 4 }}>
+                      {language === "hi" 
+                        ? "वे सभी विवरण और पैरामीटर देखें और बदलें जिनका उपयोग NIVA आपके वित्तीय डिजिटल ट्विन, तनाव स्कोर और सुरक्षित ऋण सीमा को मापने के लिए करता है।"
+                        : language === "gu"
+                        ? "તે તમામ વિગતો અને પરિમાણો જુઓ અને અપડેટ કરો જેનો ઉપયોગ NIVA તમારા નાણાકીય ડિજિટલ ટ્વીન અને ક્રેડિટ સ્કોરની ગણતરી માટે કરે છે."
+                        : "Inspect and tune the exact demographic and financial baseline parameters NIVA uses to evaluate your credit health, liquid buffer, and safe product limits."}
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      id="settings-header-refresh-btn"
+                      onClick={handleRefreshAnalysis}
+                      disabled={refreshing}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "rgba(142,242,68,0.2)",
+                        border: "1px solid var(--niva-electric-lime)",
+                        color: "var(--niva-electric-lime)",
+                        borderRadius: "var(--radius-pill)",
+                        padding: "6px 14px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                      title="Refresh and analyze financial telemetry"
+                    >
+                      <RefreshCwIcon size={14} color="var(--niva-electric-lime)" className={refreshing ? "spin-animation" : ""} />
+                      <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
+                    </button>
+                    <span className="chip chip-positive">
+                      DigiLocker Verified
+                    </span>
+                    <span className="chip chip-neutral" style={{ background: "rgba(255,255,255,0.1)", color: "#ffffff" }}>
+                      ID: {session.personaId}
+                    </span>
+                  </div>
+                </div>
+
+                {settingsNotice && (
+                  <div style={{
+                    marginTop: 16, padding: "12px 16px", borderRadius: "var(--radius-md)",
+                    background: "rgba(142,242,68,0.2)", border: "1px solid var(--niva-electric-lime)",
+                    color: "#ffffff", fontSize: 13, fontWeight: 600,
+                  }}>
+                    {settingsNotice}
+                  </div>
+                )}
+              </section>
+
+              {/* 3 Main Settings Columns */}
+              <div className="grid-2" style={{ gap: 20 }}>
+                {/* Column 1: Personal & Demographics */}
+                <div className="stack-md">
+                  <div className="card">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                      <IdCardIcon size={20} color="var(--niva-deep-forest)" />
+                      <h3 className="headline-sm">
+                        {language === "hi" ? "1. व्यक्तिगत और पहचान विवरण" : language === "gu" ? "1. વ્યક્તિગત અને ઓળખ વિગતો" : "1. Personal & DigiLocker KYC"}
+                      </h3>
+                    </div>
+                    <div className="stack-sm">
+                      <div>
+                        <label className="label-sm text-muted">Full Name</label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={profileData.full_name}
+                          onChange={(e) => setProfileData({ ...profileData, full_name: e.target.value })}
+                          style={{ width: "100%", marginTop: 4 }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label-sm text-muted">Mobile Number (Linked to Aadhaar)</label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={profileData.phone}
+                          onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                          style={{ width: "100%", marginTop: 4 }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label-sm text-muted">Occupation / Business Category</label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={profileData.occupation}
+                          onChange={(e) => setProfileData({ ...profileData, occupation: e.target.value })}
+                          placeholder="e.g. Kirana Store Owner, Software Engineer"
+                          style={{ width: "100%", marginTop: 4 }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label-sm text-muted">Operating Address / City</label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={profileData.address}
+                          onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
+                          style={{ width: "100%", marginTop: 4 }}
+                        />
+                      </div>
+                      <div className="grid-2" style={{ gap: 10 }}>
+                        <div>
+                          <label className="label-sm text-muted">Family Dependents</label>
+                          <input
+                            type="number"
+                            className="input"
+                            value={profileData.dependents}
+                            onChange={(e) => setProfileData({ ...profileData, dependents: parseInt(e.target.value) || 0 })}
+                            style={{ width: "100%", marginTop: 4 }}
+                          />
+                        </div>
+                        <div>
+                          <label className="label-sm text-muted">Date of Birth</label>
+                          <input
+                            type="text"
+                            className="input"
+                            value={profileData.dob}
+                            onChange={(e) => setProfileData({ ...profileData, dob: e.target.value })}
+                            style={{ width: "100%", marginTop: 4 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* DPDP 2023 Card */}
+                  <div className="card">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                      <ShieldIcon size={20} color="var(--niva-deep-forest)" />
+                      <h3 className="headline-sm">
+                        {language === "hi" ? "3. डेटा गोपनीयता व DPDP सहमति" : language === "gu" ? "3. ડેટા ગોપનીયતા અને DPDP સંમતિ" : "3. Privacy & DPDP 2023 Consent"}
+                      </h3>
+                    </div>
+                    <div className="stack-sm">
+                      <div>
+                        <label className="label-sm text-muted">Account Aggregator Sync Frequency</label>
+                        <select
+                          className="input"
+                          value={profileData.data_sync_frequency}
+                          onChange={(e) => setProfileData({ ...profileData, data_sync_frequency: e.target.value })}
+                          style={{ width: "100%", marginTop: 4 }}
+                        >
+                          <option value="weekly">Weekly Automated Ingestion</option>
+                          <option value="monthly">Monthly Periodic Sync (Recommended)</option>
+                          <option value="on_demand">On-Demand Manual Refresh Only</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                        <input
+                          type="checkbox"
+                          id="allowResp"
+                          checked={profileData.allow_responsible_analysis}
+                          onChange={(e) => setProfileData({ ...profileData, allow_responsible_analysis: e.target.checked })}
+                          style={{ width: 18, height: 18, accentColor: "var(--niva-deep-forest)" }}
+                        />
+                        <label htmlFor="allowResp" style={{ fontSize: 13, fontWeight: 600, color: "var(--niva-obsidian)", cursor: "pointer" }}>
+                          Enforce Responsible AI Anti-Predatory Gate
+                        </label>
+                      </div>
+                      <p className="body-sm text-muted" style={{ fontSize: 11, marginLeft: 28 }}>
+                        Automatically suppresses high-interest loans if emergency buffer drops or debt burden spikes.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Column 2: Financial Baseline Parameters (Used for AI Analysis) */}
+                <div className="stack-md">
+                  <div className="card" style={{ border: "2px solid rgba(142,242,68,0.5)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                      <BrainIcon size={20} color="var(--niva-deep-forest)" />
+                      <h3 className="headline-sm">
+                        {language === "hi" ? "2. AI विश्लेषण के आधारभूत वित्तीय पैरामीटर" : language === "gu" ? "2. AI વિશ્લેષણ માટેના નાણાકીય પરિમાણો" : "2. Financial Parameters Used for AI Analysis"}
+                      </h3>
+                    </div>
+                    <p className="body-sm text-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+                      These values directly calibrate your <strong>Debt-to-Income (DTI) ratio</strong>, <strong>Liquid Runway Months</strong>, and <strong>XGBoost Stress Predictions</strong>.
+                    </p>
+
+                    <div className="stack-sm">
+                      <div>
+                        <div className="flex-between">
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Declared Monthly Inflow (₹)</label>
+                          <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Gross / Net Take-Home</span>
+                        </div>
+                        <input
+                          type="number"
+                          className="input"
+                          value={profileData.declared_income}
+                          onChange={(e) => setProfileData({ ...profileData, declared_income: parseFloat(e.target.value) || 0 })}
+                          style={{ width: "100%", marginTop: 4, fontWeight: 700, fontSize: 16 }}
+                        />
+                        <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                          Overrides or complements detected bank salary with cash / merchant receipts.
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: 10 }}>
+                        <div className="flex-between">
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Essential Monthly Living Expenses (₹)</label>
+                          <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Mandatory Household Spend</span>
+                        </div>
+                        <input
+                          type="number"
+                          className="input"
+                          value={profileData.declared_essential_expenses}
+                          onChange={(e) => setProfileData({ ...profileData, declared_essential_expenses: parseFloat(e.target.value) || 0 })}
+                          style={{ width: "100%", marginTop: 4, fontWeight: 700, fontSize: 16 }}
+                        />
+                        <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                          Rent, groceries, utility bills, school fees, and medical insurance.
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: 10 }}>
+                        <div className="flex-between">
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Active Monthly EMI Debt Commitments (₹)</label>
+                          <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Existing External Loans</span>
+                        </div>
+                        <input
+                          type="number"
+                          className="input"
+                          value={profileData.declared_monthly_emi}
+                          onChange={(e) => setProfileData({ ...profileData, declared_monthly_emi: parseFloat(e.target.value) || 0 })}
+                          style={{ width: "100%", marginTop: 4, fontWeight: 700, fontSize: 16 }}
+                        />
+                        <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                          Total EMIs paid across all banks, credit cards, or NBFCs.
+                        </span>
+                      </div>
+
+                      <div className="grid-2" style={{ gap: 12, marginTop: 10 }}>
+                        <div>
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Target Buffer (Months)</label>
+                          <select
+                            className="input"
+                            value={profileData.target_buffer_months}
+                            onChange={(e) => setProfileData({ ...profileData, target_buffer_months: parseFloat(e.target.value) || 3 })}
+                            style={{ width: "100%", marginTop: 4 }}
+                          >
+                            <option value={3}>3 Months (Standard)</option>
+                            <option value={6}>6 Months (Recommended for Bharat)</option>
+                            <option value={9}>9 Months (High Safety)</option>
+                            <option value={12}>12 Months (Conservative)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Risk Appetite</label>
+                          <select
+                            className="input"
+                            value={profileData.risk_tolerance}
+                            onChange={(e) => setProfileData({ ...profileData, risk_tolerance: e.target.value })}
+                            style={{ width: "100%", marginTop: 4 }}
+                          >
+                            <option value="conservative">Conservative (Safety First)</option>
+                            <option value="moderate">Moderate (Balanced)</option>
+                            <option value="growth">Growth (Wealth Accrual)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Live AI Impact Preview Card */}
+                  <div className="card" style={{ background: "var(--niva-canvas-subtle)", border: "1px dashed var(--niva-deep-forest)" }}>
+                    <div className="label-sm text-muted" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <SparklesIcon size={14} color="var(--niva-deep-forest)" />
+                      <span>LIVE AI TWIN IMPACT PREVIEW</span>
+                    </div>
+                    <div className="grid-3" style={{ gap: 10, textAlign: "center" }}>
+                      <div style={{ background: "var(--niva-canvas)", padding: "10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--niva-border)" }}>
+                        <div className="label-sm text-muted">Projected DTI</div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: (profileData.declared_monthly_emi / Math.max(profileData.declared_income, 1)) > 0.4 ? "var(--niva-critical)" : "var(--niva-positive)", marginTop: 4 }}>
+                          {Math.round((profileData.declared_monthly_emi / Math.max(profileData.declared_income, 1)) * 100)}%
+                        </div>
+                      </div>
+                      <div style={{ background: "var(--niva-canvas)", padding: "10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--niva-border)" }}>
+                        <div className="label-sm text-muted">Liquid Runway</div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
+                          {(baseBalance / Math.max(profileData.declared_essential_expenses, 1)).toFixed(1)} mo
+                        </div>
+                      </div>
+                      <div style={{ background: "var(--niva-canvas)", padding: "10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--niva-border)" }}>
+                        <div className="label-sm text-muted">Surplus / Mo</div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: (profileData.declared_income - profileData.declared_essential_expenses - profileData.declared_monthly_emi) >= 0 ? "var(--niva-positive)" : "var(--niva-critical)", marginTop: 4 }}>
+                          ₹{(profileData.declared_income - profileData.declared_essential_expenses - profileData.declared_monthly_emi).toLocaleString("en-IN")}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save & Refresh Buttons */}
+                  <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                    <button
+                      id="settings-save-profile-btn"
+                      className="btn btn-primary"
+                      onClick={handleSaveProfile}
+                      disabled={savingSettings}
+                      style={{ flex: 1, padding: "14px 20px", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                    >
+                      <CheckCircleIcon size={18} color="var(--niva-electric-lime)" />
+                      {savingSettings ? "Saving & Recalculating..." : (language === "hi" ? "सेव करें और AI ट्विन पुनः परिकलित करें" : language === "gu" ? "સાચવો અને AI ટ્વીન અપડેટ કરો" : "Save & Recalculate AI Twin")}
+                    </button>
+                    <button
+                      id="settings-refresh-analysis-btn"
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleRefreshAnalysis}
+                      disabled={refreshing}
+                      style={{ padding: "14px 20px", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                      title="Refresh and re-analyze"
+                    >
+                      <RefreshCwIcon size={18} color="currentColor" className={refreshing ? "spin-animation" : ""} />
+                      <span>{refreshing ? "Analyzing..." : "Refresh Analysis"}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

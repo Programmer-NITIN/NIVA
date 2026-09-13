@@ -17,6 +17,10 @@ from app.schemas.financial import (
     StressFactor, AffordabilityRequest, AffordabilityResponse,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 aa_provider = RebitMockAAProvider()
 
 # In-memory store for custom uploaded statements
@@ -31,27 +35,77 @@ DISCRETIONARY_CATEGORIES = {"shopping", "dining", "entertainment", "transport", 
 class FinancialTwinService:
     """Computes the Financial Digital Twin from raw transaction data."""
 
-    async def compute_twin(self, persona_id: str) -> FinancialTwinResponse:
+    async def compute_twin(self, persona_id: str, force_recompute: bool = False) -> FinancialTwinResponse:
         """Build the complete financial twin for a persona or uploaded statement."""
-        if persona_id in _uploaded_twins:
-            return _uploaded_twins[persona_id]
+        # Fetch user profile overrides if present in Firestore
+        profile_overrides = None
+        try:
+            from app.firebase_client import get_user_profile
+            profile_overrides = get_user_profile(persona_id)
+        except Exception as e:
+            logger.warning(f"[NIVA Twin] Could not fetch profile override for {persona_id}: {e}")
+
+        if not force_recompute:
+            if persona_id in _uploaded_twins:
+                return _uploaded_twins[persona_id]
+
+            # Check Firestore for cached twin
+            try:
+                from app.firebase_client import get_twin_data
+                cached_data = get_twin_data(persona_id)
+                if cached_data:
+                    clean_cached = {k: v for k, v in cached_data.items() if not k.startswith("_")}
+                    twin = FinancialTwinResponse.model_validate(clean_cached)
+                    _uploaded_twins[persona_id] = twin
+                    return twin
+            except Exception as e:
+                logger.warning(f"[NIVA Twin] Could not read cached twin from Firestore for {persona_id}: {e}")
 
         # Fetch raw data
         fi_data = await aa_provider.fetch_fi_data(consent_id="CNST-DEMO", persona_id=persona_id)
         txns = fi_data.transactions
         persona = aa_provider.get_persona(persona_id)
-        persona_name = persona.get("profile", {}).get("name", persona_id)
+        persona_name = (profile_overrides.get("full_name") if profile_overrides else None) or persona.get("profile", {}).get("name", persona_id)
 
-        return self._build_twin_from_txns(persona_id, persona_name, fi_data, txns)
+        twin = self._build_twin_from_txns(persona_id, persona_name, fi_data, txns, profile_overrides=profile_overrides)
+        _uploaded_twins[persona_id] = twin
+        try:
+            from app.firebase_client import save_twin_data
+            save_twin_data(persona_id, twin.model_dump())
+        except Exception as e:
+            logger.warning(f"[NIVA Twin] Could not persist twin to Firestore for {persona_id}: {e}")
+        return twin
 
     def register_uploaded_statement(self, user_id: str, fi_data: Any, user_name: str = "Uploaded Bank Statement") -> FinancialTwinResponse:
         """Process an uploaded bank statement and store the resulting twin."""
         twin = self._build_twin_from_txns(user_id, user_name, fi_data, fi_data.transactions)
         _uploaded_twins[user_id] = twin
         _uploaded_statements[user_id] = fi_data
+        try:
+            from app.firebase_client import save_twin_data, save_statement_data
+            save_twin_data(user_id, twin.model_dump())
+            st_dict = {
+                "persona_id": user_id,
+                "consent_id": fi_data.consent_id,
+                "data_range_start": fi_data.data_range_start.isoformat() if fi_data.data_range_start else None,
+                "data_range_end": fi_data.data_range_end.isoformat() if fi_data.data_range_end else None,
+                "total_transactions": len(fi_data.transactions),
+                "accounts": [a.model_dump() for a in fi_data.accounts],
+                "transactions": [t.model_dump() for t in fi_data.transactions],
+            }
+            save_statement_data(user_id, st_dict)
+        except Exception as e:
+            print(f"[NIVA] Firestore statement persistence notice: {e}")
         return twin
 
-    def _build_twin_from_txns(self, user_id: str, display_name: str, fi_data: Any, txns: list) -> FinancialTwinResponse:
+    def _build_twin_from_txns(
+        self,
+        user_id: str,
+        display_name: str,
+        fi_data: Any,
+        txns: list,
+        profile_overrides: Any = None,
+    ) -> FinancialTwinResponse:
         if not txns:
             raise ValueError(f"No transaction data for {user_id}")
 
@@ -67,15 +121,44 @@ class FinancialTwinService:
 
         # === Income Metrics ===
         income = self._compute_income(txns, recent_txns)
+        if profile_overrides and profile_overrides.get("declared_income") is not None and float(profile_overrides["declared_income"]) > 0:
+            declared_inc = float(profile_overrides["declared_income"])
+            income = IncomeMetrics(
+                monthly_income=declared_inc,
+                stability=income.stability,
+                growth_rate=income.growth_rate,
+                sources=income.sources or [profile_overrides.get("occupation", "Primary Inflow")],
+            )
 
         # === Expense Metrics ===
         expenses = self._compute_expenses(recent_txns, baseline_txns)
+        if profile_overrides and profile_overrides.get("declared_essential_expenses") is not None and float(profile_overrides["declared_essential_expenses"]) > 0:
+            declared_ess = float(profile_overrides["declared_essential_expenses"])
+            tot_exp = declared_ess + expenses.discretionary
+            ratio = round(declared_ess / tot_exp, 2) if tot_exp > 0 else 0.5
+            expenses = ExpenseMetrics(
+                essential=declared_ess,
+                discretionary=expenses.discretionary,
+                total=tot_exp,
+                essential_ratio=ratio,
+                trend=expenses.trend,
+            )
 
         # === Spending by Category ===
         spending_by_cat = self._compute_spending_breakdown(recent_txns, baseline_txns)
 
         # === Debt Metrics ===
         debt = self._compute_debt(recent_txns, income.monthly_income)
+        if profile_overrides and profile_overrides.get("declared_monthly_emi") is not None and float(profile_overrides["declared_monthly_emi"]) >= 0:
+            declared_emi = float(profile_overrides["declared_monthly_emi"])
+            dti = round(declared_emi / income.monthly_income, 2) if income.monthly_income > 0 else 0.5
+            debt = DebtMetrics(
+                total_emi=declared_emi,
+                emi_to_income=dti,
+                debt_to_income=dti,
+                credit_utilization=debt.credit_utilization,
+                credit_utilization_change=debt.credit_utilization_change,
+            )
 
         # === Savings Metrics ===
         savings = self._compute_savings(income, expenses, debt)
@@ -215,17 +298,23 @@ class FinancialTwinService:
         return categories
 
     def _compute_debt(self, recent_txns, monthly_income: float) -> DebtMetrics:
-        """Calculate EMI burden and debt metrics."""
+        """Calculate EMI burden and debt metrics dynamically."""
         emi_txns = [t for t in recent_txns if t.type == "DEBIT" and t.category == "emi"]
         total_emi = sum(t.amount for t in emi_txns)
         emi_to_income = round(total_emi / monthly_income, 3) if monthly_income > 0 else 0
+
+        # Dynamic credit utilization: revolving / EMI load vs estimated credit capacity (3x income)
+        estimated_capacity = max(monthly_income * 3.0, 50000.0)
+        active_debt_burden = total_emi * 1.5
+        credit_util = min(0.98, max(0.05, round(active_debt_burden / estimated_capacity, 2)))
+        util_change = round(credit_util - 0.30, 2)
 
         return DebtMetrics(
             total_emi=round(total_emi),
             emi_to_income=emi_to_income,
             debt_to_income=round(emi_to_income * 1.2, 3),  # Approximate with interest
-            credit_utilization=0.68 if total_emi > 10000 else 0.25,  # Simulated
-            credit_utilization_change=0.42 if total_emi > 10000 else -0.05,
+            credit_utilization=credit_util,
+            credit_utilization_change=util_change,
         )
 
     def _compute_savings(self, income: IncomeMetrics, expenses: ExpenseMetrics, debt: DebtMetrics) -> SavingsMetrics:
@@ -324,6 +413,37 @@ class FinancialTwinService:
             if any(k in desc for k in ["bounce", "penalty", "late", "return", "ecs ret", "nach ret"]):
                 late_mandates += 1
 
+        # Compute real balance slope using linear regression on transaction balances
+        balances = [getattr(t, "balance", None) for t in sorted(all_txns, key=lambda x: x.transaction_date)]
+        valid_balances = [float(b) for b in balances if b is not None]
+        if len(valid_balances) >= 2:
+            n = len(valid_balances)
+            x_vals = list(range(n))
+            x_bar = sum(x_vals) / n
+            y_bar = sum(valid_balances) / n
+            denom = sum((x - x_bar) ** 2 for x in x_vals)
+            if denom > 0:
+                slope_per_txn = sum((x - x_bar) * (y - y_bar) for x, y in zip(x_vals, valid_balances)) / denom
+                txns_per_month = (n / 90.0) * 30.0 if n > 0 else 30.0
+                balance_trend_slope = round(slope_per_txn * txns_per_month, 1)
+            else:
+                balance_trend_slope = round(float(valid_balances[-1] - valid_balances[0]), 1)
+        else:
+            balance_trend_slope = round(float(monthly_inc - (expenses.total if expenses else 0.0)), 1)
+
+        # Compute real new beneficiary percentage (new payee ratio)
+        rec_ids = {id(t) for t in rec_txns}
+        base_txns = [t for t in all_txns if id(t) not in rec_ids]
+        recent_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in rec_txns if t.type == "DEBIT")
+        baseline_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in base_txns if t.type == "DEBIT")
+        recent_payees.discard("")
+        baseline_payees.discard("")
+        if recent_payees:
+            new_payees = recent_payees - baseline_payees
+            new_beneficiary_pct = round(len(new_payees) / len(recent_payees), 4)
+        else:
+            new_beneficiary_pct = 0.0
+
         features = {
             "monthly_income": monthly_inc,
             "income_volatility_cv": income_cv,
@@ -332,11 +452,11 @@ class FinancialTwinService:
             "liquidity_buffer_days": liquidity_days,
             "discretionary_spend_ratio": discretionary_ratio,
             "late_mandate_count_90d": float(late_mandates),
-            "balance_trend_slope": -4500.0 if (expenses and expenses.trend > 15) else 1200.0,
+            "balance_trend_slope": balance_trend_slope,
             "expense_trend_pct": float(expenses.trend) if expenses else 0.0,
             "upi_txns_per_day": round(len(rec_txns) / 30.0, 2) if rec_txns else 1.5,
             "night_txn_ratio": round(night_count / total_txns, 4),
-            "new_beneficiary_pct": 0.08,
+            "new_beneficiary_pct": new_beneficiary_pct,
             "merchant_category_entropy": round(max(0.5, entropy), 4),
         }
 
@@ -603,7 +723,7 @@ class FinancialTwinService:
         else:
             reasoning = f"Purchase creates a shortfall of ₹{shortfall:,.0f}. Recommended: save for {months_needed or 3} months or consider the ₹{safer_low:,.0f}–₹{safer_high:,.0f} range."
 
-        return AffordabilityResponse(
+        res = AffordabilityResponse(
             target_amount=target,
             affordable=affordable,
             current_balance=current_balance,
@@ -621,3 +741,18 @@ class FinancialTwinService:
             recommended_delay_months=months_needed,
             reasoning=reasoning,
         )
+
+        try:
+            from app.utils.terminal_logger import log_affordability_event
+            log_affordability_event(
+                persona_id=persona_id,
+                target_amount=target,
+                verdict=affordable,
+                reasoning=reasoning,
+                current_balance=current_balance,
+                post_emergency_months=post_emergency,
+            )
+        except Exception:
+            pass
+
+        return res

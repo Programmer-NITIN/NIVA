@@ -91,9 +91,27 @@ class LifeStageClassifier:
         # Targeted recommendations for this life stage
         recommendations = PRODUCT_RECOMMENDATIONS.get(life_stage_name, [])
 
-        return {
+        res = {
             "life_stage": life_stage_name,
             "confidence": round(float(max(probabilities)), 4),
             "class_probabilities": class_probs,
             "recommended_products": recommendations,
         }
+
+        try:
+            from app.utils.terminal_logger import log_ml_model_run
+            top_rec_names = [p.get("product") for p in recommendations[:2]]
+            log_ml_model_run(
+                model_name="Random Forest Demographic Life-Stage Classifier",
+                task="Categorize customer into Bharat socioeconomic life stage",
+                inputs=features,
+                outputs={
+                    "Predicted Life Stage": life_stage_name,
+                    "Confidence": f"{max(probabilities) * 100:.1f}%",
+                    "Next-Best Actions": top_rec_names,
+                },
+            )
+        except Exception:
+            pass
+
+        return res

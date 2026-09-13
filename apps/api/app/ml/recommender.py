@@ -122,52 +122,164 @@ class ResponsibleRecommender:
         stress_probability: float,
         life_stage: str,
         twin_metrics: Optional[Dict[str, Any]] = None,
+        schemes_catalog: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Computes ranked, responsible next-best-actions.
+        Computes ranked, responsible next-best-actions using either bank-configured
+        schemes or the baseline product catalog.
         """
         recommendations = []
-
         is_stressed = stress_probability >= self.stress_threshold
+        customer_stress_score = (twin_metrics.get("stress_score") if twin_metrics else None) or (stress_probability * 100)
+        customer_dti = (twin_metrics.get("debt", {}).get("debt_to_income") if twin_metrics and isinstance(twin_metrics.get("debt"), dict) else None)
+        if customer_dti is None and twin_metrics:
+            customer_dti = twin_metrics.get("dti_ratio", 0.28)
+        if customer_dti is None:
+            customer_dti = 0.28
 
-        for product_id, catalog_item in PRODUCT_CATALOG.items():
-            category = catalog_item["category"]
-            risk_weight = catalog_item["risk_weight"]
+        if schemes_catalog:
+            # Dynamically evaluate bank-configured schemes
+            for scheme in schemes_catalog:
+                if not scheme.get("is_active", True):
+                    continue
 
-            # 1. Base need utility from life stage
-            base_need = NEED_MATRIX.get((life_stage, product_id), 0.35)
+                scheme_id = scheme.get("scheme_id") or scheme.get("id")
+                category = scheme.get("category", "credit")
+                risk_weight = float(scheme.get("risk_weight", 0.35))
+                target_stage = scheme.get("target_life_stage", "ALL")
+                max_allowed_stress = float(scheme.get("max_stress_score", 50.0))
+                max_allowed_dti = float(scheme.get("max_dti", 0.45))
+                subsidized = bool(scheme.get("subsidized", False))
 
-            # 2. Risk penalty based on customer's ML stress score
-            risk_penalty = risk_weight * stress_probability
+                # 1. Base need utility
+                if target_stage == life_stage:
+                    base_need = 0.92
+                elif target_stage == "ALL":
+                    base_need = 0.75
+                elif category == "business_credit" and "MSME" in life_stage:
+                    base_need = 0.88
+                elif category == "savings":
+                    base_need = 0.70
+                elif category == "recovery" and ("DEBT" in life_stage or is_stressed):
+                    base_need = 0.94
+                else:
+                    base_need = 0.35
 
-            # 3. Final utility score
-            utility_score = max(0.05, base_need - risk_penalty)
+                if subsidized:
+                    base_need = min(1.0, base_need + 0.08)
 
-            # 4. Anti-predatory Policy Gate
-            is_suppressed = False
-            suppression_reason = None
+                # 2. Risk penalty
+                risk_penalty = risk_weight * stress_probability
 
-            if is_stressed and category in ["credit"]:
-                is_suppressed = True
-                suppression_reason = (
-                    f"Responsible Lending Gate: Customer exhibits elevated financial stress "
-                    f"({stress_probability:.1%}). Unsecured credit offer suppressed to prevent over-indebtedness."
-                )
-            elif is_stressed and product_id in ["debt_restructure", "emergency_fund_rd"]:
-                # Boost recovery products for stressed customers
-                utility_score = min(1.0, utility_score + 0.25)
+                # 3. Utility calculation
+                utility_score = max(0.05, base_need - risk_penalty)
 
-            recommendations.append({
-                "product_id": product_id,
-                "name": catalog_item["name"],
-                "category": category,
-                "utility_score": round(utility_score, 3),
-                "is_suppressed": is_suppressed,
-                "suppression_reason": suppression_reason,
-                "description": catalog_item["description"],
-                "policy_action": "BLOCKED_BY_GUARDRAIL" if is_suppressed else "ELIGIBLE",
-            })
+                # 4. Anti-Predatory Responsible Gate
+                is_suppressed = False
+                suppression_reason = None
+
+                if customer_stress_score > max_allowed_stress:
+                    if category in ["credit", "business_credit"]:
+                        is_suppressed = True
+                        suppression_reason = (
+                            f"Responsible Gate Guardrail: Customer financial stress ({customer_stress_score:.0f}/100) "
+                            f"exceeds scheme limit ({max_allowed_stress:.0f}/100). Credit offer suppressed."
+                        )
+                elif is_stressed and category in ["credit"]:
+                    is_suppressed = True
+                    suppression_reason = (
+                        f"Responsible Lending Gate: Customer exhibits elevated financial stress "
+                        f"({stress_probability:.1%}). Unsecured credit offer suppressed to prevent over-indebtedness."
+                    )
+                elif customer_dti > max_allowed_dti and category in ["credit", "business_credit"]:
+                    is_suppressed = True
+                    suppression_reason = (
+                        f"Responsible Lending Gate: Customer DTI ({customer_dti:.0%}) exceeds "
+                        f"scheme safety limit ({max_allowed_dti:.0%}). Offer held to safeguard debt capacity."
+                    )
+
+                if is_stressed and (category in ["recovery", "savings"] or subsidized):
+                    utility_score = min(1.0, utility_score + 0.20)
+
+                recommendations.append({
+                    "product_id": scheme_id,
+                    "scheme_id": scheme_id,
+                    "name": scheme.get("name", "Bank Scheme"),
+                    "category": category,
+                    "interest_rate_pct": float(scheme.get("interest_rate_pct", 8.5)),
+                    "max_amount": float(scheme.get("max_amount", 50000.0)),
+                    "tenure_months": int(scheme.get("tenure_months", 12)),
+                    "utility_score": round(utility_score, 3),
+                    "is_suppressed": is_suppressed,
+                    "suppression_reason": suppression_reason,
+                    "description": scheme.get("description", ""),
+                    "originator_bank": scheme.get("originator_bank", "State Bank of India"),
+                    "subsidized": subsidized,
+                    "target_life_stage": target_stage,
+                    "policy_action": "BLOCKED_BY_GUARDRAIL" if is_suppressed else "RECOMMENDED",
+                })
+        else:
+            # Baseline catalog fallback
+            for product_id, catalog_item in PRODUCT_CATALOG.items():
+                category = catalog_item["category"]
+                risk_weight = catalog_item["risk_weight"]
+
+                base_need = NEED_MATRIX.get((life_stage, product_id), 0.35)
+                risk_penalty = risk_weight * stress_probability
+                utility_score = max(0.05, base_need - risk_penalty)
+
+                is_suppressed = False
+                suppression_reason = None
+
+                if is_stressed and category in ["credit"]:
+                    is_suppressed = True
+                    suppression_reason = (
+                        f"Responsible Lending Gate: Customer exhibits elevated financial stress "
+                        f"({stress_probability:.1%}). Unsecured credit offer suppressed to prevent over-indebtedness."
+                    )
+                elif is_stressed and product_id in ["debt_restructure", "emergency_fund_rd"]:
+                    utility_score = min(1.0, utility_score + 0.25)
+
+                recommendations.append({
+                    "product_id": product_id,
+                    "scheme_id": product_id,
+                    "name": catalog_item["name"],
+                    "category": category,
+                    "interest_rate_pct": 12.0 if category == "credit" else 7.0,
+                    "max_amount": 50000.0,
+                    "tenure_months": 12,
+                    "utility_score": round(utility_score, 3),
+                    "is_suppressed": is_suppressed,
+                    "suppression_reason": suppression_reason,
+                    "description": catalog_item["description"],
+                    "originator_bank": "State Bank of India",
+                    "subsidized": False,
+                    "target_life_stage": "ALL",
+                    "policy_action": "BLOCKED_BY_GUARDRAIL" if is_suppressed else "ELIGIBLE",
+                })
 
         # Sort: Active offers first (by descending utility), followed by suppressed offers
         recommendations.sort(key=lambda x: (x["is_suppressed"], -x["utility_score"]))
+
+        try:
+            from app.utils.terminal_logger import log_ml_model_run
+            top_approved = [r["name"] for r in recommendations if not r["is_suppressed"]][:3]
+            suppressed = [r["name"] for r in recommendations if r["is_suppressed"]]
+            log_ml_model_run(
+                model_name="Responsible Product Recommender & Anti-Predatory Filter",
+                task="Score NBA products with utility matrix and enforce responsible lending guardrails",
+                inputs={
+                    "Customer Life Stage": life_stage,
+                    "Stress Probability": f"{stress_probability:.1%}",
+                    "Stressed Tier Active": is_stressed,
+                    "Total Catalog Items": len(recommendations),
+                },
+                outputs={
+                    "Recommended Offers": top_approved,
+                    "Suppressed Products": f"{len(suppressed)} Blocked ({', '.join(suppressed[:2])})" if suppressed else "0 Blocked",
+                },
+            )
+        except Exception:
+            pass
+
         return recommendations

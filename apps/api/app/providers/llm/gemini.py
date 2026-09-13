@@ -22,33 +22,37 @@ AVAILABLE_MODELS = [
     "gemini-3.1-flash-lite",
 ]
 
+
 def _call_gemini_with_fallback(context: str, tools=None):
     """Call Gemini across a resilient fallback pool to ensure zero 429 quota disruptions."""
-    if not settings.gemini_api_key:
+    if not getattr(settings, "gemini_api_key", None):
         return None
 
-    import google.generativeai as genai
-    genai.configure(api_key=settings.gemini_api_key)
-    model_kwargs = {"system_instruction": SYSTEM_PROMPT}
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=settings.gemini_api_key)
+        model_kwargs = {"system_instruction": SYSTEM_PROMPT}
 
-    last_error = None
-    for model_name in AVAILABLE_MODELS:
-        try:
+        last_error = None
+        for model_name in AVAILABLE_MODELS:
             try:
-                model = genai.GenerativeModel(model_name, **model_kwargs)
-            except TypeError:
-                model = genai.GenerativeModel(model_name)
-            
-            response = model.generate_content(context, tools=tools)
-            return response
-        except Exception as e:
-            last_error = e
-            print(f"[NIVA] Model {model_name} failed: {e}. Trying next model in pool...")
-            continue
+                try:
+                    model = genai.GenerativeModel(model_name, **model_kwargs)
+                except TypeError:
+                    model = genai.GenerativeModel(model_name)
+                response = model.generate_content(context, tools=tools)
+                return response
+            except Exception as e:
+                last_error = e
+                print(f"[NIVA] Model {model_name} failed: {e}. Trying next model in pool...")
+                continue
 
-    if last_error:
-        raise last_error
-    return None
+        if last_error:
+            raise last_error
+        return None
+    except Exception as e:
+        print(f"[NIVA] Gemini init/call failed: {e}")
+        return None
 
 
 SYSTEM_PROMPT = """You are NIVA (Nuanced Intelligence Virtual Advisor), a responsible financial copilot for Indian banking customers.
@@ -73,18 +77,18 @@ TOOL_DECLARATIONS = [
         "name": "calculate_affordability",
         "description": "Calculate whether the user can afford a purchase given their current financial state. Returns exact balance analysis, emergency buffer impact, and safer alternatives.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {
                 "target_amount": {
-                    "type": "number",
+                    "type": "NUMBER",
                     "description": "The amount in INR the user wants to spend"
                 },
                 "delay_months": {
-                    "type": "integer",
+                    "type": "INTEGER",
                     "description": "Number of months to delay the purchase (0 = buy now)"
                 },
                 "description": {
-                    "type": "string",
+                    "type": "STRING",
                     "description": "What the user wants to buy"
                 }
             },
@@ -95,7 +99,7 @@ TOOL_DECLARATIONS = [
         "name": "get_spending_breakdown",
         "description": "Get the user's spending breakdown by category for the current month. Shows essential vs discretionary split with trends.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -103,7 +107,7 @@ TOOL_DECLARATIONS = [
         "name": "get_financial_health",
         "description": "Get the user's complete financial health including health score, stress score, emergency buffer, and stress factors.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -111,7 +115,7 @@ TOOL_DECLARATIONS = [
         "name": "get_stress_signals",
         "description": "Get the user's financial stress signals and what changed from their baseline behavior.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {},
         }
     },
@@ -119,10 +123,10 @@ TOOL_DECLARATIONS = [
         "name": "get_gate_verdict",
         "description": "Check why a product recommendation was suppressed or approved by the Responsible Gate.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",
             "properties": {
                 "product_type": {
-                    "type": "string",
+                    "type": "STRING",
                     "description": "Product type: personal_loan, credit_card, emergency_fund, fixed_deposit, sip, health_insurance"
                 }
             },
@@ -142,8 +146,7 @@ async def generate_response(
     Generate a copilot response using Gemini with function calling.
     Returns: { reply: str, tool_calls: list, language: str }
     """
-    if not settings.gemini_api_key:
-        # Fallback to rule-based
+    if not getattr(settings, "gemini_api_key", None):
         return _fallback_response(message, language)
 
     try:
@@ -185,7 +188,9 @@ ML Financial Twin Intelligence:
             ml_context = ""
 
         # Build prompt with rich context
-        context = f"""User language preference: {language}
+        context = f"""{SYSTEM_PROMPT}
+
+User language preference: {language}
 Active persona: {persona_id}
 {ml_context}
 User message: {message}"""

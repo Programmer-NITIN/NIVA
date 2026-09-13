@@ -133,7 +133,7 @@ class StressExplainer:
             exp_val = self.explainer.expected_value
             base_val = float(exp_val[1] if isinstance(exp_val, (list, np.ndarray)) else exp_val)
 
-        return {
+        res = {
             "stress_probability": round(prob, 4),
             "risk_level": risk_level,
             "top_risk_factors": risk_factors,
@@ -141,3 +141,21 @@ class StressExplainer:
             "all_shap_values": all_shap,
             "base_value": round(base_val, 4),
         }
+
+        try:
+            from app.utils.terminal_logger import log_ml_model_run
+            log_ml_model_run(
+                model_name="XGBoost Stress Predictor + SHAP Explainer",
+                task="13-Feature Bharat Behavioral Stress Probability & Attribution",
+                inputs=features,
+                outputs={
+                    "Stress Score": f"{int(round(prob * 100))}/100",
+                    "Risk Level": risk_level.upper(),
+                    "Top Stress Driver": risk_factors[0]["label"] if risk_factors else "None",
+                    "Primary Shield": protective_factors[0]["label"] if protective_factors else "None",
+                },
+            )
+        except Exception:
+            pass
+
+        return res

@@ -62,13 +62,53 @@ class ResponsibleGateService:
     """Evaluates product recommendations through the Responsible AI Gate."""
 
     async def evaluate_all_products(self, persona_id: str) -> RecommendationListResponse:
-        """Evaluate all products for a persona."""
+        """Evaluate all products/schemes for a persona."""
         twin = await twin_service.compute_twin(persona_id)
         recommendations = []
 
-        for product_type, catalog in PRODUCT_CATALOG.items():
+        # 1. Fetch active bank schemes from Firestore
+        catalog_items = {}
+        try:
+            from app.firebase_client import list_bank_schemes
+            bank_schemes = list_bank_schemes(active_only=True)
+            if bank_schemes:
+                for s in bank_schemes:
+                    sid = s.get("scheme_id") or s.get("id")
+                    category = s.get("category", "credit")
+                    is_subsidized = bool(s.get("subsidized", False))
+                    suitability = {
+                        "max_stress_score": float(s.get("max_stress_score", 50.0)),
+                        "max_debt_to_income": float(s.get("max_dti", 0.45)),
+                    }
+                    if category in ["savings", "recovery", "protection"] or is_subsidized:
+                        suitability["always_recommend_if_needed"] = True
+
+                    catalog_items[sid] = {
+                        "name": s.get("name", "Bank Scheme"),
+                        "category": category,
+                        "interest_rate_pct": float(s.get("interest_rate_pct", 8.5)),
+                        "max_amount": float(s.get("max_amount", 50000.0)),
+                        "tenure_months": int(s.get("tenure_months", 12)),
+                        "eligibility": {"min_income": float(s.get("min_income", 15000.0))},
+                        "suitability": suitability,
+                        "originator": s.get("originator_bank", "State Bank of India"),
+                        "description": s.get("description", ""),
+                        "subsidized": is_subsidized,
+                        "target_life_stage": s.get("target_life_stage", "ALL"),
+                        "always_recommend_if_needed": category in ["savings", "recovery"] or is_subsidized,
+                    }
+        except Exception:
+            pass
+
+        if not catalog_items:
+            catalog_items = PRODUCT_CATALOG
+
+        for product_type, catalog in catalog_items.items():
             verdict = self._evaluate_single(twin, product_type, catalog)
             recommendations.append(verdict)
+
+        # Sort recommendations: RECOMMEND first, then SUPPRESS
+        recommendations.sort(key=lambda r: (0 if r.decision == "RECOMMEND" else 1))
 
         suppressed = sum(1 for r in recommendations if r.decision == "SUPPRESS")
         recommended = sum(1 for r in recommendations if r.decision == "RECOMMEND")
@@ -82,11 +122,42 @@ class ResponsibleGateService:
 
     async def evaluate_product(self, persona_id: str, product_type: str) -> GateVerdictResponse:
         """Evaluate a specific product for a persona."""
-        if product_type not in PRODUCT_CATALOG:
-            raise ValueError(f"Unknown product: {product_type}")
+        catalog_items = {}
+        try:
+            from app.firebase_client import get_bank_scheme
+            scheme = get_bank_scheme(product_type)
+            if scheme:
+                category = scheme.get("category", "credit")
+                is_subsidized = bool(scheme.get("subsidized", False))
+                catalog_items[product_type] = {
+                    "name": scheme.get("name", "Bank Scheme"),
+                    "category": category,
+                    "interest_rate_pct": float(scheme.get("interest_rate_pct", 8.5)),
+                    "max_amount": float(scheme.get("max_amount", 50000.0)),
+                    "tenure_months": int(scheme.get("tenure_months", 12)),
+                    "eligibility": {"min_income": float(scheme.get("min_income", 15000.0))},
+                    "suitability": {
+                        "max_stress_score": float(scheme.get("max_stress_score", 50.0)),
+                        "max_debt_to_income": float(scheme.get("max_dti", 0.45)),
+                        "always_recommend_if_needed": category in ["savings", "recovery"] or is_subsidized,
+                    },
+                    "originator": scheme.get("originator_bank", "State Bank of India"),
+                    "description": scheme.get("description", ""),
+                    "subsidized": is_subsidized,
+                    "target_life_stage": scheme.get("target_life_stage", "ALL"),
+                    "always_recommend_if_needed": category in ["savings", "recovery"] or is_subsidized,
+                }
+        except Exception:
+            pass
+
+        if product_type not in catalog_items:
+            if product_type in PRODUCT_CATALOG:
+                catalog_items[product_type] = PRODUCT_CATALOG[product_type]
+            else:
+                raise ValueError(f"Unknown product: {product_type}")
 
         twin = await twin_service.compute_twin(persona_id)
-        return self._evaluate_single(twin, product_type, PRODUCT_CATALOG[product_type])
+        return self._evaluate_single(twin, product_type, catalog_items[product_type])
 
     def _evaluate_single(self, twin, product_type: str, catalog: dict) -> GateVerdictResponse:
         """Run the gate pipeline for a single product."""
@@ -220,6 +291,24 @@ class ResponsibleGateService:
             policy_id = "POL-100"
             alternative = None
             alt_product = None
+
+        try:
+            from app.utils.terminal_logger import log_gate_policy_eval
+            log_gate_policy_eval(
+                policy_id=policy_id or "POL-APPROVED",
+                policy_name="Statutory Responsible Lending & Protection Policy",
+                product_name=catalog.get("name", product_type),
+                decision=decision,
+                rationale=gate_reason,
+                metrics={
+                    "Stress": f"{twin.stress_score}/100",
+                    "DTI": f"{twin.debt.debt_to_income * 100:.1f}%",
+                    "Buffer": f"{twin.liquidity.emergency_months:.1f} Mo",
+                },
+                persona_id=twin.user_id,
+            )
+        except Exception:
+            pass
 
         # Impact projections for suppressed loans
         risk_shift = None

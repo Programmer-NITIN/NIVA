@@ -9,6 +9,11 @@ import {
   getRebitTelemetry,
   executeBankAction,
   assignBankCounselor,
+  loginBankOfficer,
+  getBankSchemes,
+  createBankScheme,
+  updateBankScheme,
+  deleteBankScheme,
   getPortfolio,
   getBureauLag,
   resetDemo,
@@ -22,9 +27,11 @@ import {
   CheckCircleIcon,
   FileTextIcon,
   SparklesIcon,
+  RefreshCwIcon,
+  SettingsIcon,
 } from "@/components/icons";
 
-type BankTab = "portfolio" | "customer360" | "gateAudit" | "rebit" | "relief";
+type BankTab = "portfolio" | "customer360" | "bankSchemes" | "gateAudit" | "rebit" | "relief";
 
 export default function BankPortal() {
   const [activeTab, setActiveTab] = useState<BankTab>("portfolio");
@@ -38,6 +45,28 @@ export default function BankPortal() {
   const [portfolio, setPortfolio] = useState<any>(null);
   const [bureau, setBureau] = useState<any>(null);
 
+  // Bank Schemes State
+  const [schemes, setSchemes] = useState<any[]>([]);
+  const [showNewSchemeModal, setShowNewSchemeModal] = useState(false);
+  const [savingScheme, setSavingScheme] = useState(false);
+  const [newScheme, setNewScheme] = useState<any>({
+    scheme_id: "",
+    name: "",
+    category: "business_credit",
+    interest_rate_pct: 7.0,
+    max_amount: 50000,
+    tenure_months: 12,
+    min_income: 15000,
+    target_life_stage: "ALL",
+    max_stress_score: 55,
+    max_dti: 0.45,
+    risk_weight: 0.25,
+    is_active: true,
+    description: "",
+    originator_bank: "State Bank of India",
+    subsidized: true,
+  });
+
   // Action status toast / notification
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -49,22 +78,90 @@ export default function BankPortal() {
   async function loadInitialData() {
     setLoading(true);
     try {
-      const [custData, policyData, portData] = await Promise.all([
+      // Background ensure bank officer JWT session without blocking initial data fetch
+      loginBankOfficer("SBI-OFFICER-7891", "889900").catch(() => null);
+
+      const [custData, policyData, schemesData, portData] = await Promise.all([
         getBankCustomers().catch(() => ({ customers: [] })),
         getGatePolicies().catch(() => ({ active_policies: [] })),
+        getBankSchemes().catch(() => ({ schemes: [] })),
         getPortfolio().catch(() => null),
       ]);
       setCustomers(custData.customers || []);
       setPolicies(policyData.active_policies || []);
+      setSchemes(schemesData.schemes || []);
       if (portData) setPortfolio(portData);
+      setLoading(false);
 
       if (custData.customers?.length > 0) {
-        await selectCustomer(custData.customers[0]);
+        selectCustomer(custData.customers[0]);
       }
     } catch (e) {
       console.error("Error loading bank data:", e);
-    } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleToggleScheme(schemeId: string, currentActive: boolean) {
+    try {
+      await updateBankScheme(schemeId, { is_active: !currentActive });
+      setSchemes((prev) =>
+        prev.map((s) => (s.scheme_id === schemeId ? { ...s, is_active: !currentActive } : s))
+      );
+      setActionNotice(`Scheme '${schemeId}' status changed to ${!currentActive ? "ACTIVE" : "PAUSED"}. AI Recommendation Gate updated.`);
+      setTimeout(() => setActionNotice(null), 5000);
+    } catch (e: any) {
+      alert("Failed to toggle scheme: " + e.message);
+    }
+  }
+
+  async function handleDeleteScheme(schemeId: string) {
+    if (!confirm(`Are you sure you want to retire and delete scheme '${schemeId}'?`)) return;
+    try {
+      await deleteBankScheme(schemeId);
+      setSchemes((prev) => prev.filter((s) => s.scheme_id !== schemeId));
+      setActionNotice(`Scheme '${schemeId}' deleted and removed from AI Recommendation Model.`);
+      setTimeout(() => setActionNotice(null), 5000);
+    } catch (e: any) {
+      alert("Failed to delete scheme: " + e.message);
+    }
+  }
+
+  async function handleCreateScheme(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newScheme.name.trim() || !newScheme.scheme_id.trim()) {
+      alert("Please provide Scheme ID and Scheme Name.");
+      return;
+    }
+    setSavingScheme(true);
+    try {
+      const res = await createBankScheme(newScheme);
+      setSchemes((prev) => [res.scheme, ...prev.filter((s) => s.scheme_id !== newScheme.scheme_id)]);
+      setShowNewSchemeModal(false);
+      setActionNotice(`Bank Scheme '${newScheme.name}' successfully deployed to AI Recommendation Model!`);
+      setTimeout(() => setActionNotice(null), 6000);
+      // Reset form
+      setNewScheme({
+        scheme_id: "",
+        name: "",
+        category: "business_credit",
+        interest_rate_pct: 7.0,
+        max_amount: 50000,
+        tenure_months: 12,
+        min_income: 15000,
+        target_life_stage: "ALL",
+        max_stress_score: 55,
+        max_dti: 0.45,
+        risk_weight: 0.25,
+        is_active: true,
+        description: "",
+        originator_bank: "State Bank of India",
+        subsidized: true,
+      });
+    } catch (e: any) {
+      alert("Failed to deploy scheme: " + (e.message || e));
+    } finally {
+      setSavingScheme(false);
     }
   }
 
@@ -177,11 +274,36 @@ export default function BankPortal() {
           </div>
 
           <ul className="navbar-tabs">
-            <li><button className={activeTab === "portfolio" ? "active" : ""} onClick={() => setActiveTab("portfolio")}>Portfolio EWS</button></li>
-            <li><button className={activeTab === "customer360" ? "active" : ""} onClick={() => setActiveTab("customer360")}>Customer 360</button></li>
-            <li><button className={activeTab === "gateAudit" ? "active" : ""} onClick={() => setActiveTab("gateAudit")}>Gate Audit</button></li>
-            <li><button className={activeTab === "rebit" ? "active" : ""} onClick={() => setActiveTab("rebit")}>ReBIT 1.1</button></li>
-            <li><button className={activeTab === "relief" ? "active" : ""} onClick={() => setActiveTab("relief")}>Relief Console</button></li>
+            <li>
+              <button className={activeTab === "portfolio" ? "active" : ""} onClick={() => setActiveTab("portfolio")}>
+                Portfolio EWS
+              </button>
+            </li>
+            <li>
+              <button className={activeTab === "customer360" ? "active" : ""} onClick={() => setActiveTab("customer360")}>
+                Customer 360
+              </button>
+            </li>
+            <li>
+              <button className={activeTab === "bankSchemes" ? "active" : ""} onClick={() => setActiveTab("bankSchemes")}>
+                Bank Schemes &amp; Products
+              </button>
+            </li>
+            <li>
+              <button className={activeTab === "gateAudit" ? "active" : ""} onClick={() => setActiveTab("gateAudit")}>
+                Responsible Gate Audit
+              </button>
+            </li>
+            <li>
+              <button className={activeTab === "rebit" ? "active" : ""} onClick={() => setActiveTab("rebit")}>
+                ReBIT 1.1 Ingestion
+              </button>
+            </li>
+            <li>
+              <button className={activeTab === "relief" ? "active" : ""} onClick={() => setActiveTab("relief")}>
+                Relief Action Console
+              </button>
+            </li>
           </ul>
 
           <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -216,66 +338,76 @@ export default function BankPortal() {
 
       <div className="page-container page-content" style={{ paddingTop: 24, paddingBottom: 64 }}>
         {loading ? (
-          <div className="card" style={{ padding: "3rem", textAlign: "center" }}>Loading bank data...</div>
+          <div className="card" style={{ padding: "4rem 2rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            <div className="spin-animation" style={{ display: "inline-flex" }}>
+              <RefreshCwIcon size={36} color="var(--niva-deep-forest)" />
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--niva-deep-forest)" }}>Loading Institutional Underwriting Console...</div>
+              <div style={{ fontSize: 13, color: "var(--niva-text-muted)", marginTop: 4 }}>Connecting to RBI Master Direction Fair Lending Engine &amp; Firebase Firestore</div>
+            </div>
+          </div>
         ) : (
           <div className="stack-xl">
-            {/* Customer 360 Switcher Strip */}
-            <div className="card" style={{
-              background: "var(--niva-canvas-subtle)",
-              border: "1px solid var(--niva-border)",
-              padding: "16px 20px",
-            }}>
-              <div className="flex-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                <div className="flex-gap-sm">
-                  <BuildingBankIcon size={20} color="var(--niva-deep-forest)" />
-                  <span className="label-sm" style={{ fontWeight: 700, letterSpacing: "0.05em", color: "var(--niva-deep-forest)" }}>
-                    INSTITUTIONAL UNDERWRITING CONSOLE • CUSTOMER 360 PORTFOLIO
+            {/* Customer Portfolio Switcher Strip — Shown only on customer-centric tabs (Customer 360, ReBIT 1.1 Ingestion, Relief Console) */}
+            {(activeTab === "customer360" || activeTab === "rebit" || activeTab === "relief") && (
+              <div className="card" style={{
+                background: "var(--niva-canvas-subtle)",
+                border: "1px solid var(--niva-border)",
+                padding: "16px 20px",
+              }}>
+                <div className="flex-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                  <div className="flex-gap-sm">
+                    <BuildingBankIcon size={20} color="var(--niva-deep-forest)" />
+                    <span className="label-sm" style={{ fontWeight: 700, letterSpacing: "0.05em", color: "var(--niva-deep-forest)" }}>
+                      INSTITUTIONAL UNDERWRITING CONSOLE • CUSTOMER 360 PORTFOLIO
+                    </span>
+                  </div>
+                  <span className="chip chip-neutral" style={{ fontSize: 11 }}>
+                    {customers.length} Underwriting Files Monitored
                   </span>
                 </div>
-                <span className="chip chip-neutral" style={{ fontSize: 11 }}>
-                  {customers.length} Underwriting Files Monitored
-                </span>
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {customers.map((c) => {
-                  const isSel = selected?.persona_id === c.persona_id;
-                  const isLive = c.persona_id.startsWith("custom_");
-                  return (
-                    <button
-                      key={c.persona_id}
-                      onClick={() => selectCustomer(c)}
-                      style={{
-                        padding: "10px 16px",
-                        borderRadius: "var(--radius-md)",
-                        border: isSel ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
-                        background: isSel ? "var(--niva-canvas)" : "transparent",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <span className={`status-dot ${c.stress_level === "low" ? "positive" : c.stress_level === "critical" || c.stress_level === "high" ? "critical" : "warning"}`} />
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                          {c.name}
-                          {isLive && (
-                            <span className="chip chip-positive" style={{ fontSize: 9, padding: "1px 6px" }}>
-                              LIVE STATEMENT
-                            </span>
-                          )}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {customers.map((c) => {
+                    const isSel = selected?.persona_id === c.persona_id;
+                    const isLive = c.persona_id.startsWith("custom_");
+                    return (
+                      <button
+                        key={c.persona_id}
+                        onClick={() => selectCustomer(c)}
+                        style={{
+                          padding: "10px 16px",
+                          borderRadius: "var(--radius-md)",
+                          border: isSel ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                          background: isSel ? "var(--niva-canvas)" : "transparent",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <span className={`status-dot ${c.stress_level === "low" ? "positive" : c.stress_level === "critical" || c.stress_level === "high" ? "critical" : "warning"}`} />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                            {c.name}
+                            {isLive && (
+                              <span className="chip chip-positive" style={{ fontSize: 9, padding: "1px 6px" }}>
+                                LIVE STATEMENT
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
+                            Score: {c.health_score}/100 • {c.gate_verdict || "APPROVED"}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>
-                          Score: {c.health_score}/100 • {c.gate_verdict || "APPROVED"}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {activeTab === "portfolio" && (
               <div className="stack-lg">
@@ -862,6 +994,463 @@ export default function BankPortal() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ═══════════════ VIEW 5: BANK SCHEMES & PRODUCT CONFIGURATOR ═══════════════ */}
+            {activeTab === "bankSchemes" && (
+              <div className="stack-lg">
+                <div className="flex-between" style={{ flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <h2 className="headline-sm">Bank Schemes &amp; AI Recommendation Catalog</h2>
+                    <p className="body-sm text-muted">
+                      Configure retail lending, micro-working capital, seasonal agri-OD, and savings buffer schemes. 
+                      Active schemes are dynamically fed into the NIVA Machine Learning Recommendation Model.
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={async () => {
+                        const data = await getBankSchemes();
+                        setSchemes(data.schemes || []);
+                        alert("successfully anylisi it");
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      <RefreshCwIcon size={14} />
+                      <span>Refresh</span>
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setShowNewSchemeModal(true)}
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      <span>+ Configure New Scheme</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* KPI Metrics Strip */}
+                <div className="grid-4" style={{ gap: 14 }}>
+                  <div className="card" style={{ padding: 16 }}>
+                    <div className="label-sm text-muted">TOTAL SCHEMES</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-obsidian)", marginTop: 4 }}>
+                      {schemes.length}
+                    </div>
+                    <div className="body-sm text-muted" style={{ fontSize: 11, marginTop: 2 }}>In institutional portfolio</div>
+                  </div>
+                  <div className="card" style={{ padding: 16 }}>
+                    <div className="label-sm text-muted">ACTIVE IN AI CATALOG</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-positive)", marginTop: 4 }}>
+                      {schemes.filter((s) => s.is_active !== false).length}
+                    </div>
+                    <div className="body-sm text-muted" style={{ fontSize: 11, marginTop: 2 }}>Live in Recommendation Gate</div>
+                  </div>
+                  <div className="card" style={{ padding: 16 }}>
+                    <div className="label-sm text-muted">SUBSIDIZED GOVT LINES</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
+                      {schemes.filter((s) => s.subsidized).length}
+                    </div>
+                    <div className="body-sm text-muted" style={{ fontSize: 11, marginTop: 2 }}>Priority welfare schemes</div>
+                  </div>
+                  <div className="card" style={{ padding: 16 }}>
+                    <div className="label-sm text-muted">TARGET LIFE-STAGES</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "var(--niva-warning)", marginTop: 4 }}>
+                      5 Segments
+                    </div>
+                    <div className="body-sm text-muted" style={{ fontSize: 11, marginTop: 2 }}>Kirana, Agri, Salaried, Gig, Debt</div>
+                  </div>
+                </div>
+
+                {/* Schemes Catalog Cards Grid */}
+                <div className="grid-2" style={{ gap: 16 }}>
+                  {schemes.map((scheme) => {
+                    const isActive = scheme.is_active !== false;
+                    const eligibleCount = customers.filter(
+                      (c) =>
+                        (c.monthly_income || 0) >= (scheme.min_income || 0) &&
+                        (c.stress_score || 0) <= (scheme.max_stress_score || 50)
+                    ).length;
+
+                    return (
+                      <div
+                        key={scheme.scheme_id}
+                        className="card"
+                        style={{
+                          border: isActive ? "1px solid var(--niva-border)" : "1px dashed #d1d5db",
+                          opacity: isActive ? 1 : 0.65,
+                          background: isActive ? "var(--niva-canvas)" : "var(--niva-canvas-dim)",
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <div>
+                          <div className="flex-between" style={{ marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span
+                                className={`chip ${
+                                  scheme.category === "credit"
+                                    ? "chip-neutral"
+                                    : scheme.category === "savings"
+                                    ? "chip-positive"
+                                    : scheme.category === "recovery"
+                                    ? "chip-warning"
+                                    : "chip-positive"
+                                }`}
+                                style={{ fontSize: 10, textTransform: "uppercase" }}
+                              >
+                                {scheme.category?.replace(/_/g, " ")}
+                              </span>
+                              {scheme.subsidized && (
+                                <span className="chip chip-positive" style={{ fontSize: 10 }}>
+                                  Govt Subsidized
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: isActive ? "var(--niva-positive)" : "var(--niva-text-muted)" }}>
+                                {isActive ? "● LIVE" : "○ PAUSED"}
+                              </span>
+                              <button
+                                onClick={() => handleToggleScheme(scheme.scheme_id, isActive)}
+                                style={{
+                                  background: isActive ? "rgba(0,168,89,0.12)" : "rgba(0,0,0,0.08)",
+                                  border: "1px solid var(--niva-border)",
+                                  borderRadius: "var(--radius-pill)",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  color: isActive ? "var(--niva-positive)" : "var(--niva-text-muted)",
+                                }}
+                                title="Toggle scheme availability in AI model"
+                              >
+                                {isActive ? "Pause" : "Activate"}
+                              </button>
+                            </div>
+                          </div>
+
+                          <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--niva-obsidian)" }}>
+                            {scheme.name}
+                          </h3>
+                          <div style={{ fontSize: 11, color: "var(--niva-text-muted)", marginBottom: 8 }}>
+                            {scheme.originator_bank || "State Bank of India"} • ID: <code style={{ fontSize: 11 }}>{scheme.scheme_id}</code>
+                          </div>
+                          <p className="body-sm text-secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+                            {scheme.description || "Bharat-focused financial instrument evaluated under NIVA Responsible Gate."}
+                          </p>
+
+                          {/* Key Specs */}
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(3, 1fr)",
+                              gap: 8,
+                              background: "var(--niva-canvas-subtle)",
+                              padding: 10,
+                              borderRadius: "var(--radius-sm)",
+                              marginBottom: 12,
+                              textAlign: "center",
+                            }}
+                          >
+                            <div>
+                              <div className="label-sm text-muted" style={{ fontSize: 10 }}>INTEREST / APY</div>
+                              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--niva-deep-forest)" }}>
+                                {scheme.interest_rate_pct}%
+                              </div>
+                            </div>
+                            <div>
+                              <div className="label-sm text-muted" style={{ fontSize: 10 }}>MAX LIMIT</div>
+                              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--niva-obsidian)" }}>
+                                ₹{scheme.max_amount >= 100000 ? `${(scheme.max_amount / 100000).toFixed(1)}L` : `${(scheme.max_amount / 1000).toFixed(0)}k`}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="label-sm text-muted" style={{ fontSize: 10 }}>TENURE</div>
+                              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--niva-obsidian)" }}>
+                                {scheme.tenure_months} mo
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* AI Gate Guardrails */}
+                          <div style={{ fontSize: 11, color: "var(--niva-text-muted)", marginBottom: 10 }}>
+                            <div style={{ fontWeight: 700, color: "var(--niva-obsidian)", marginBottom: 4 }}>
+                              AI Responsible Gate Criteria:
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                              <span>• Target: <strong>{scheme.target_life_stage || "ALL"}</strong></span>
+                              <span>• Min Income: <strong>₹{(scheme.min_income || 15000).toLocaleString("en-IN")}</strong></span>
+                              <span>• Max Stress Score: <strong>≤ {scheme.max_stress_score || 50}/100</strong></span>
+                              <span>• Max DTI: <strong>≤ {Math.round((scheme.max_dti || 0.45) * 100)}%</strong></span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Footer: Portfolio Match & Delete */}
+                        <div
+                          style={{
+                            paddingTop: 10,
+                            borderTop: "1px solid var(--niva-border)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--niva-deep-forest)" }}>
+                            Matched Portfolio: <strong>{eligibleCount} of {customers.length}</strong> borrowers eligible
+                          </span>
+                          <button
+                            onClick={() => handleDeleteScheme(scheme.scheme_id)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "var(--niva-critical)",
+                              fontSize: 11,
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                            }}
+                          >
+                            Retire Scheme
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Modal for Creating New Scheme */}
+                {showNewSchemeModal && (
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      background: "rgba(0,0,0,0.6)",
+                      zIndex: 10000,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 20,
+                    }}
+                  >
+                    <div
+                      className="card"
+                      style={{
+                        maxWidth: 640,
+                        width: "100%",
+                        maxHeight: "90vh",
+                        overflowY: "auto",
+                        background: "var(--niva-canvas)",
+                        padding: 24,
+                        boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+                      }}
+                    >
+                      <div className="flex-between" style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <BuildingBankIcon size={22} color="var(--niva-deep-forest)" />
+                          <h3 className="headline-sm">Configure New Bank Scheme</h3>
+                        </div>
+                        <button
+                          onClick={() => setShowNewSchemeModal(false)}
+                          style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--niva-text-muted)" }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="body-sm text-muted" style={{ marginBottom: 16 }}>
+                        Define product economics and responsible underwriting guardrails. Once deployed, NIVA's Machine Learning recommendation model immediately begins matching eligible borrowers.
+                      </p>
+
+                      <form onSubmit={handleCreateScheme} className="stack-sm">
+                        <div className="grid-2" style={{ gap: 12 }}>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Scheme Identifier (Unique ID)</label>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="e.g. sbi_festive_kirana_credit"
+                              value={newScheme.scheme_id}
+                              onChange={(e) => setNewScheme({ ...newScheme, scheme_id: e.target.value.toLowerCase().replace(/\s+/g, "_") })}
+                              required
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Scheme Title / Name</label>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="e.g. SBI Festive Kirana Working Capital"
+                              value={newScheme.name}
+                              onChange={(e) => setNewScheme({ ...newScheme, name: e.target.value })}
+                              required
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid-3" style={{ gap: 12, marginTop: 8 }}>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Product Category</label>
+                            <select
+                              className="input"
+                              value={newScheme.category}
+                              onChange={(e) => setNewScheme({ ...newScheme, category: e.target.value })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            >
+                              <option value="business_credit">Business Credit / MSME</option>
+                              <option value="credit">Unsecured Personal Credit</option>
+                              <option value="savings">Savings / Buffer RD</option>
+                              <option value="recovery">Debt Restructure / Recovery</option>
+                              <option value="protection">Micro Insurance / Protection</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Annual APR / Interest %</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              className="input"
+                              value={newScheme.interest_rate_pct}
+                              onChange={(e) => setNewScheme({ ...newScheme, interest_rate_pct: parseFloat(e.target.value) || 0 })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Max Disbursal (₹)</label>
+                            <input
+                              type="number"
+                              className="input"
+                              value={newScheme.max_amount}
+                              onChange={(e) => setNewScheme({ ...newScheme, max_amount: parseFloat(e.target.value) || 0 })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid-3" style={{ gap: 12, marginTop: 8 }}>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Tenure (Months)</label>
+                            <input
+                              type="number"
+                              className="input"
+                              value={newScheme.tenure_months}
+                              onChange={(e) => setNewScheme({ ...newScheme, tenure_months: parseInt(e.target.value) || 12 })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Min Monthly Inflow (₹)</label>
+                            <input
+                              type="number"
+                              className="input"
+                              value={newScheme.min_income}
+                              onChange={(e) => setNewScheme({ ...newScheme, min_income: parseFloat(e.target.value) || 0 })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label className="label-sm" style={{ fontWeight: 700 }}>Target Life-Stage Segment</label>
+                            <select
+                              className="input"
+                              value={newScheme.target_life_stage}
+                              onChange={(e) => setNewScheme({ ...newScheme, target_life_stage: e.target.value })}
+                              style={{ width: "100%", marginTop: 4 }}
+                            >
+                              <option value="ALL">All Segments (Universal)</option>
+                              <option value="MSME_KIRANA_SEASONAL">MSME Kirana &amp; Seasonal</option>
+                              <option value="RURAL_AGRI_ALLIED">Rural Agriculture &amp; Allied</option>
+                              <option value="EARLY_CAREER_GIG">Early Career Gig Worker</option>
+                              <option value="EARLY_CAREER_SALARIED">Early Career Salaried</option>
+                              <option value="ESTABLISHED_FAMILY_HIGH_DEBT">High-Debt Established Family</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="card" style={{ background: "var(--niva-canvas-subtle)", padding: 12, marginTop: 10 }}>
+                          <div className="label-sm text-muted" style={{ marginBottom: 6, fontWeight: 700 }}>
+                            AI RESPONSIBLE GATE UNDERWRITING GUARDRAILS
+                          </div>
+                          <div className="grid-2" style={{ gap: 12 }}>
+                            <div>
+                              <label className="label-sm">Max Stress Threshold (0 - 100)</label>
+                              <input
+                                type="number"
+                                className="input"
+                                value={newScheme.max_stress_score}
+                                onChange={(e) => setNewScheme({ ...newScheme, max_stress_score: parseFloat(e.target.value) || 50 })}
+                                style={{ width: "100%", marginTop: 4 }}
+                              />
+                              <span style={{ fontSize: 10, color: "var(--niva-text-muted)" }}>If customer stress exceeds this, the AI Gate suppresses this offer.</span>
+                            </div>
+                            <div>
+                              <label className="label-sm">Max Permitted DTI (Ratio)</label>
+                              <input
+                                type="number"
+                                step="0.05"
+                                className="input"
+                                value={newScheme.max_dti}
+                                onChange={(e) => setNewScheme({ ...newScheme, max_dti: parseFloat(e.target.value) || 0.45 })}
+                                style={{ width: "100%", marginTop: 4 }}
+                              />
+                              <span style={{ fontSize: 10, color: "var(--niva-text-muted)" }}>Standard RBI threshold is 0.40 - 0.50</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                          <input
+                            type="checkbox"
+                            id="subsidizedCheck"
+                            checked={newScheme.subsidized}
+                            onChange={(e) => setNewScheme({ ...newScheme, subsidized: e.target.checked })}
+                            style={{ width: 16, height: 16, accentColor: "var(--niva-deep-forest)" }}
+                          />
+                          <label htmlFor="subsidizedCheck" style={{ fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                            Government Interest Subvention / Welfare Program (Prioritized by AI Recommender)
+                          </label>
+                        </div>
+
+                        <div style={{ marginTop: 8 }}>
+                          <label className="label-sm" style={{ fontWeight: 700 }}>Description &amp; Borrower Vernacular Explanation</label>
+                          <textarea
+                            className="input"
+                            rows={2}
+                            placeholder="State scheme benefits clearly for Tier-2/3 borrowers..."
+                            value={newScheme.description}
+                            onChange={(e) => setNewScheme({ ...newScheme, description: e.target.value })}
+                            style={{ width: "100%", marginTop: 4 }}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => setShowNewSchemeModal(false)}
+                            disabled={savingScheme}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="btn btn-primary"
+                            disabled={savingScheme}
+                            style={{ display: "flex", alignItems: "center", gap: 6 }}
+                          >
+                            <CheckCircleIcon size={16} color="var(--niva-electric-lime)" />
+                            <span>{savingScheme ? "Deploying..." : "Deploy Scheme to AI Engine"}</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

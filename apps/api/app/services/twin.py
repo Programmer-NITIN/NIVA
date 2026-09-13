@@ -17,6 +17,10 @@ from app.schemas.financial import (
     StressFactor, AffordabilityRequest, AffordabilityResponse,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 aa_provider = RebitMockAAProvider()
 
 # In-memory store for custom uploaded statements
@@ -31,27 +35,77 @@ DISCRETIONARY_CATEGORIES = {"shopping", "dining", "entertainment", "transport", 
 class FinancialTwinService:
     """Computes the Financial Digital Twin from raw transaction data."""
 
-    async def compute_twin(self, persona_id: str) -> FinancialTwinResponse:
+    async def compute_twin(self, persona_id: str, force_recompute: bool = False) -> FinancialTwinResponse:
         """Build the complete financial twin for a persona or uploaded statement."""
-        if persona_id in _uploaded_twins:
-            return _uploaded_twins[persona_id]
+        # Fetch user profile overrides if present in Firestore
+        profile_overrides = None
+        try:
+            from app.firebase_client import get_user_profile
+            profile_overrides = get_user_profile(persona_id)
+        except Exception as e:
+            logger.warning(f"[NIVA Twin] Could not fetch profile override for {persona_id}: {e}")
+
+        if not force_recompute:
+            if persona_id in _uploaded_twins:
+                return _uploaded_twins[persona_id]
+
+            # Check Firestore for cached twin
+            try:
+                from app.firebase_client import get_twin_data
+                cached_data = get_twin_data(persona_id)
+                if cached_data:
+                    clean_cached = {k: v for k, v in cached_data.items() if not k.startswith("_")}
+                    twin = FinancialTwinResponse.model_validate(clean_cached)
+                    _uploaded_twins[persona_id] = twin
+                    return twin
+            except Exception as e:
+                logger.warning(f"[NIVA Twin] Could not read cached twin from Firestore for {persona_id}: {e}")
 
         # Fetch raw data
         fi_data = await aa_provider.fetch_fi_data(consent_id="CNST-DEMO", persona_id=persona_id)
         txns = fi_data.transactions
         persona = aa_provider.get_persona(persona_id)
-        persona_name = persona.get("profile", {}).get("name", persona_id)
+        persona_name = (profile_overrides.get("full_name") if profile_overrides else None) or persona.get("profile", {}).get("name", persona_id)
 
-        return self._build_twin_from_txns(persona_id, persona_name, fi_data, txns)
+        twin = self._build_twin_from_txns(persona_id, persona_name, fi_data, txns, profile_overrides=profile_overrides)
+        _uploaded_twins[persona_id] = twin
+        try:
+            from app.firebase_client import save_twin_data
+            save_twin_data(persona_id, twin.model_dump())
+        except Exception as e:
+            logger.warning(f"[NIVA Twin] Could not persist twin to Firestore for {persona_id}: {e}")
+        return twin
 
     def register_uploaded_statement(self, user_id: str, fi_data: Any, user_name: str = "Uploaded Bank Statement") -> FinancialTwinResponse:
         """Process an uploaded bank statement and store the resulting twin."""
         twin = self._build_twin_from_txns(user_id, user_name, fi_data, fi_data.transactions)
         _uploaded_twins[user_id] = twin
         _uploaded_statements[user_id] = fi_data
+        try:
+            from app.firebase_client import save_twin_data, save_statement_data
+            save_twin_data(user_id, twin.model_dump())
+            st_dict = {
+                "persona_id": user_id,
+                "consent_id": fi_data.consent_id,
+                "data_range_start": fi_data.data_range_start.isoformat() if fi_data.data_range_start else None,
+                "data_range_end": fi_data.data_range_end.isoformat() if fi_data.data_range_end else None,
+                "total_transactions": len(fi_data.transactions),
+                "accounts": [a.model_dump() for a in fi_data.accounts],
+                "transactions": [t.model_dump() for t in fi_data.transactions],
+            }
+            save_statement_data(user_id, st_dict)
+        except Exception as e:
+            print(f"[NIVA] Firestore statement persistence notice: {e}")
         return twin
 
-    def _build_twin_from_txns(self, user_id: str, display_name: str, fi_data: Any, txns: list) -> FinancialTwinResponse:
+    def _build_twin_from_txns(
+        self,
+        user_id: str,
+        display_name: str,
+        fi_data: Any,
+        txns: list,
+        profile_overrides: Any = None,
+    ) -> FinancialTwinResponse:
         if not txns:
             raise ValueError(f"No transaction data for {user_id}")
 
@@ -67,15 +121,44 @@ class FinancialTwinService:
 
         # === Income Metrics ===
         income = self._compute_income(txns, recent_txns)
+        if profile_overrides and profile_overrides.get("declared_income") is not None and float(profile_overrides["declared_income"]) > 0:
+            declared_inc = float(profile_overrides["declared_income"])
+            income = IncomeMetrics(
+                monthly_income=declared_inc,
+                stability=income.stability,
+                growth_rate=income.growth_rate,
+                sources=income.sources or [profile_overrides.get("occupation", "Primary Inflow")],
+            )
 
         # === Expense Metrics ===
         expenses = self._compute_expenses(recent_txns, baseline_txns)
+        if profile_overrides and profile_overrides.get("declared_essential_expenses") is not None and float(profile_overrides["declared_essential_expenses"]) > 0:
+            declared_ess = float(profile_overrides["declared_essential_expenses"])
+            tot_exp = declared_ess + expenses.discretionary
+            ratio = round(declared_ess / tot_exp, 2) if tot_exp > 0 else 0.5
+            expenses = ExpenseMetrics(
+                essential=declared_ess,
+                discretionary=expenses.discretionary,
+                total=tot_exp,
+                essential_ratio=ratio,
+                trend=expenses.trend,
+            )
 
         # === Spending by Category ===
         spending_by_cat = self._compute_spending_breakdown(recent_txns, baseline_txns)
 
         # === Debt Metrics ===
         debt = self._compute_debt(recent_txns, income.monthly_income)
+        if profile_overrides and profile_overrides.get("declared_monthly_emi") is not None and float(profile_overrides["declared_monthly_emi"]) >= 0:
+            declared_emi = float(profile_overrides["declared_monthly_emi"])
+            dti = round(declared_emi / income.monthly_income, 2) if income.monthly_income > 0 else 0.5
+            debt = DebtMetrics(
+                total_emi=declared_emi,
+                emi_to_income=dti,
+                debt_to_income=dti,
+                credit_utilization=debt.credit_utilization,
+                credit_utilization_change=debt.credit_utilization_change,
+            )
 
         # === Savings Metrics ===
         savings = self._compute_savings(income, expenses, debt)
@@ -92,7 +175,7 @@ class FinancialTwinService:
 
         # === Composite Scores ===
         health_score = self._compute_health_score(income, savings, debt, liquidity, expenses)
-        stress_result = self._compute_stress(savings, debt, expenses, liquidity)
+        stress_result = self._compute_stress(savings, debt, expenses, liquidity, txns, recent_txns, income)
         anomaly_score = self._compute_anomaly(recent_txns, baseline_txns)
 
         # === What Changed ===
@@ -215,17 +298,23 @@ class FinancialTwinService:
         return categories
 
     def _compute_debt(self, recent_txns, monthly_income: float) -> DebtMetrics:
-        """Calculate EMI burden and debt metrics."""
+        """Calculate EMI burden and debt metrics dynamically."""
         emi_txns = [t for t in recent_txns if t.type == "DEBIT" and t.category == "emi"]
         total_emi = sum(t.amount for t in emi_txns)
         emi_to_income = round(total_emi / monthly_income, 3) if monthly_income > 0 else 0
+
+        # Dynamic credit utilization: revolving / EMI load vs estimated credit capacity (3x income)
+        estimated_capacity = max(monthly_income * 3.0, 50000.0)
+        active_debt_burden = total_emi * 1.5
+        credit_util = min(0.98, max(0.05, round(active_debt_burden / estimated_capacity, 2)))
+        util_change = round(credit_util - 0.30, 2)
 
         return DebtMetrics(
             total_emi=round(total_emi),
             emi_to_income=emi_to_income,
             debt_to_income=round(emi_to_income * 1.2, 3),  # Approximate with interest
-            credit_utilization=0.68 if total_emi > 10000 else 0.25,  # Simulated
-            credit_utilization_change=0.42 if total_emi > 10000 else -0.05,
+            credit_utilization=credit_util,
+            credit_utilization_change=util_change,
         )
 
     def _compute_savings(self, income: IncomeMetrics, expenses: ExpenseMetrics, debt: DebtMetrics) -> SavingsMetrics:
@@ -282,105 +371,246 @@ class FinancialTwinService:
 
         return max(0, min(100, round(score)))
 
-    def _compute_stress(self, savings, debt, expenses, liquidity) -> dict:
+    def _compute_stress(self, savings, debt, expenses, liquidity, txns=None, recent_txns=None, income=None) -> dict:
         """
-        Financial Stress Score (0-100).
-        Rules-based with interpretable contributing factors.
+        Computes financial stress via trained XGBoost model and SHAP TreeExplainer.
+        Uses 13 Bharat financial behavioral features.
         """
-        factors = []
-        score = 0
+        all_txns = txns or []
+        rec_txns = recent_txns or []
+        total_txns = max(len(all_txns), 1)
 
-        # Savings declining
-        if savings.trend < -15:
-            contribution = 20
-            score += contribution
-            factors.append(StressFactor(
-                factor="Savings rate declining",
-                value=savings.trend,
-                threshold=-15,
-                contribution=contribution,
-                description=f"Savings rate trend is {savings.trend}% (threshold: -15%)",
-            ))
+        night_count = 0
+        categories = []
+        for t in all_txns:
+            hr = getattr(t.transaction_date, "hour", 12) if hasattr(t, "transaction_date") and t.transaction_date else 12
+            if hr >= 23 or hr <= 5:
+                night_count += 1
+            if getattr(t, "category", None):
+                categories.append(str(t.category))
 
-        # Credit utilization rising
-        if debt.credit_utilization_change and debt.credit_utilization_change > 0.2:
-            contribution = 20
-            score += contribution
-            factors.append(StressFactor(
-                factor="Credit utilization rising",
-                value=round(debt.credit_utilization_change * 100),
-                threshold=20,
-                contribution=contribution,
-                description=f"Credit card utilization increased by {round(debt.credit_utilization_change * 100)}%",
-            ))
+        from collections import Counter
+        from math import log2
+        cat_counts = Counter(categories)
+        entropy = 0.0
+        for count in cat_counts.values():
+            p = count / total_txns
+            if p > 0:
+                entropy -= p * log2(p)
 
-        # Discretionary spending up
-        if expenses.trend > 15:
-            contribution = 15
-            score += contribution
-            factors.append(StressFactor(
-                factor="Discretionary spending increasing",
-                value=expenses.trend,
-                threshold=15,
-                contribution=contribution,
-                description=f"Expenses trending up {expenses.trend}% vs baseline",
-            ))
+        monthly_inc = float(income.monthly_income) if income else 65000.0
+        stability = float(income.stability) if income else 75.0
+        income_cv = max(0.01, float((100 - stability) / 100))
+        dti = float(debt.debt_to_income) if debt else 0.3
+        savings_rate = float(savings.rate / 100) if savings else 0.15
+        liquidity_days = float(liquidity.emergency_months * 30) if liquidity else 60.0
+        total_exp = max(float(expenses.total), 1.0) if expenses else 25000.0
+        discretionary_ratio = float(expenses.discretionary / total_exp) if expenses else 0.35
 
-        # EMI burden high
-        if debt.emi_to_income > 0.35:
-            contribution = 15
-            score += contribution
-            factors.append(StressFactor(
-                factor="High EMI burden",
-                value=round(debt.emi_to_income * 100),
-                threshold=35,
-                contribution=contribution,
-                description=f"EMI-to-income ratio at {round(debt.emi_to_income * 100)}% (threshold: 35%)",
-            ))
+        late_mandates = 0
+        for t in all_txns:
+            desc = (getattr(t, "description", "") or "").lower()
+            if any(k in desc for k in ["bounce", "penalty", "late", "return", "ecs ret", "nach ret"]):
+                late_mandates += 1
 
-        # Low emergency buffer
-        if liquidity.emergency_months < 2:
-            contribution = 10
-            score += contribution
-            factors.append(StressFactor(
-                factor="Low emergency buffer",
-                value=liquidity.emergency_months,
-                threshold=2,
-                contribution=contribution,
-                description=f"Emergency buffer at {liquidity.emergency_months} months (target: 3+)",
-            ))
-
-        score = min(100, score)
-
-        # Classify level
-        if score >= 70:
-            level = "high"
-        elif score >= 50:
-            level = "elevated"
-        elif score >= 30:
-            level = "moderate"
+        # Compute real balance slope using linear regression on transaction balances
+        balances = [getattr(t, "balance", None) for t in sorted(all_txns, key=lambda x: x.transaction_date)]
+        valid_balances = [float(b) for b in balances if b is not None]
+        if len(valid_balances) >= 2:
+            n = len(valid_balances)
+            x_vals = list(range(n))
+            x_bar = sum(x_vals) / n
+            y_bar = sum(valid_balances) / n
+            denom = sum((x - x_bar) ** 2 for x in x_vals)
+            if denom > 0:
+                slope_per_txn = sum((x - x_bar) * (y - y_bar) for x, y in zip(x_vals, valid_balances)) / denom
+                txns_per_month = (n / 90.0) * 30.0 if n > 0 else 30.0
+                balance_trend_slope = round(slope_per_txn * txns_per_month, 1)
+            else:
+                balance_trend_slope = round(float(valid_balances[-1] - valid_balances[0]), 1)
         else:
-            level = "low"
+            balance_trend_slope = round(float(monthly_inc - (expenses.total if expenses else 0.0)), 1)
 
-        return {"score": score, "level": level, "factors": factors}
+        # Compute real new beneficiary percentage (new payee ratio)
+        rec_ids = {id(t) for t in rec_txns}
+        base_txns = [t for t in all_txns if id(t) not in rec_ids]
+        recent_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in rec_txns if t.type == "DEBIT")
+        baseline_payees = set(getattr(t, "narration", "") or getattr(t, "description", "") for t in base_txns if t.type == "DEBIT")
+        recent_payees.discard("")
+        baseline_payees.discard("")
+        if recent_payees:
+            new_payees = recent_payees - baseline_payees
+            new_beneficiary_pct = round(len(new_payees) / len(recent_payees), 4)
+        else:
+            new_beneficiary_pct = 0.0
+
+        features = {
+            "monthly_income": monthly_inc,
+            "income_volatility_cv": income_cv,
+            "dti_ratio": dti,
+            "savings_rate": savings_rate,
+            "liquidity_buffer_days": liquidity_days,
+            "discretionary_spend_ratio": discretionary_ratio,
+            "late_mandate_count_90d": float(late_mandates),
+            "balance_trend_slope": balance_trend_slope,
+            "expense_trend_pct": float(expenses.trend) if expenses else 0.0,
+            "upi_txns_per_day": round(len(rec_txns) / 30.0, 2) if rec_txns else 1.5,
+            "night_txn_ratio": round(night_count / total_txns, 4),
+            "new_beneficiary_pct": new_beneficiary_pct,
+            "merchant_category_entropy": round(max(0.5, entropy), 4),
+        }
+
+        try:
+            from app.ml.explainer import StressExplainer
+            explainer = StressExplainer()
+            explanation = explainer.explain(features)
+            prob = explanation["stress_probability"]
+            score = min(100, max(0, int(round(prob * 100))))
+            level = explanation["risk_level"]
+
+            factors = [
+                StressFactor(
+                    factor=f["label"],
+                    value=float(f["value"]),
+                    threshold=0.0,
+                    contribution=int(round(f["impact_magnitude"] * 100)),
+                    description=f"SHAP local attribution: {f['direction'].title()} driver ({f['label']} = {f['value']}) contributing {f['impact_magnitude']:.3f} impact",
+                )
+                for f in explanation["top_risk_factors"]
+            ]
+            return {"score": score, "level": level, "factors": factors, "ml_explanation": explanation}
+        except Exception:
+            # Fallback if model loading encounters an edge case
+            score = min(95, max(15, int(dti * 100 + (1.0 - savings_rate) * 30)))
+            level = "critical" if score >= 75 else "high" if score >= 60 else "elevated" if score >= 40 else "moderate" if score >= 25 else "low"
+            return {
+                "score": score,
+                "level": level,
+                "factors": [
+                    StressFactor(factor="Debt-to-Income", value=dti, threshold=0.4, contribution=25, description="High DTI burden"),
+                    StressFactor(factor="Liquidity Buffer", value=liquidity_days, threshold=90.0, contribution=20, description="Available liquidity"),
+                ],
+            }
 
     def _compute_anomaly(self, recent_txns, baseline_txns) -> int:
-        """Simple anomaly detection using Z-score on transaction amounts."""
-        baseline_debits = [t.amount for t in baseline_txns if t.type == "DEBIT"]
-        if not baseline_debits:
+        """Anomaly detection using trained Isolation Forest ML model."""
+        if not recent_txns:
             return 0
+        try:
+            from app.ml.anomaly_detector import TransactionAnomalyDetector
+            detector = TransactionAnomalyDetector()
+            
+            baseline_debits = [t.amount for t in baseline_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            avg_debit = (sum(baseline_debits) / len(baseline_debits)) if baseline_debits else 1000.0
+            
+            txn_payloads = []
+            for t in recent_txns:
+                amt = float(getattr(t, "amount", 0.0))
+                txn_date = getattr(t, "transaction_date", None)
+                hr = txn_date.hour if txn_date and hasattr(txn_date, "hour") else 12
+                txn_payloads.append({
+                    "transaction_id": getattr(t, "transaction_id", "") or getattr(t, "id", ""),
+                    "amount": amt,
+                    "avg_amount_30d": avg_debit,
+                    "transaction_hour": hr,
+                    "velocity_1h": 1,
+                    "is_new_beneficiary": False,
+                })
+                
+            results = detector.detect(txn_payloads)
+            max_score = max((r.get("anomaly_score", 0.0) for r in results), default=0.0)
+            return min(100, max(0, int(round(max_score * 100))))
+        except Exception:
+            baseline_debits = [t.amount for t in baseline_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            if not baseline_debits:
+                return 0
+            mean = sum(baseline_debits) / len(baseline_debits)
+            std = (sum((x - mean) ** 2 for x in baseline_debits) / len(baseline_debits)) ** 0.5
+            if std == 0:
+                return 0
+            recent_debits = [t.amount for t in recent_txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+            max_z = max((abs(x - mean) / std) for x in recent_debits) if recent_debits else 0
+            return min(100, round(max_z * 20))
 
-        mean = sum(baseline_debits) / len(baseline_debits)
-        std = (sum((x - mean) ** 2 for x in baseline_debits) / len(baseline_debits)) ** 0.5
+    def _detect_recurring_mandates(self, txns: list) -> list[dict]:
+        """
+        Dynamically detects recurring debit mandates from real transaction patterns
+        (e.g., monthly EMI, house rent, utilities, insurance, SIP investments).
+        """
+        mandates = []
+        if not txns:
+            return mandates
 
-        if std == 0:
-            return 0
+        debits = [t for t in txns if getattr(t, "type", "DEBIT") == "DEBIT"]
+        grouped: dict[str, list] = defaultdict(list)
 
-        recent_debits = [t.amount for t in recent_txns if t.type == "DEBIT"]
-        max_z = max((abs(x - mean) / std) for x in recent_debits) if recent_debits else 0
+        MANDATE_KEYWORDS = {
+            "Apartment Rent / Lease": ["rent", "landlord", "housing", "society maintenance"],
+            "Home / Personal Loan EMI": ["emi", "loan", "hdb", "bajaj", "credit card payment", "equitas"],
+            "Electricity & Power Bill": ["bescom", "ugvcl", "tneb", "mseb", "electricity", "power"],
+            "Telecom & Broadband": ["airtel", "jio", "act corp", "broadband", "fibernet", "bsnl"],
+            "Insurance Premium (Life/Health)": ["lic", "insurance", "hdfc ergo", "star health", "policy"],
+            "Wealth SIP / Mutual Fund": ["zerodha", "groww", "uti", "mf", "sip", "kuvera", "camsonline"],
+            "Water & Municipal Tax": ["water board", "municipal", "bwssb", "tax"],
+        }
 
-        # Z-score > 3 = highly anomalous
-        return min(100, round(max_z * 20))
+        for d in debits:
+            desc = (getattr(d, "description", "") or "").lower()
+            cat = (getattr(d, "category", "") or "").lower()
+            
+            matched_label = None
+            for label, keywords in MANDATE_KEYWORDS.items():
+                if any(k in desc or k in cat for k in keywords):
+                    matched_label = label
+                    break
+            
+            if matched_label:
+                grouped[matched_label].append(d)
+            elif cat in ["emi", "rent", "utilities", "insurance", "investment"]:
+                clean_cat = cat.replace("_", " ").title()
+                grouped[f"{clean_cat} Recurring Mandate"].append(d)
+
+        now = datetime.utcnow()
+        for label, group_txns in grouped.items():
+            group_txns.sort(key=lambda x: getattr(x, "transaction_date", now), reverse=True)
+            latest = group_txns[0]
+            avg_amt = sum(getattr(t, "amount", 0.0) for t in group_txns) / len(group_txns)
+            due_day = getattr(latest.transaction_date, "day", 5) if hasattr(latest, "transaction_date") and latest.transaction_date else 5
+            
+            last_date = getattr(latest, "transaction_date", None)
+            is_recent = False
+            if last_date:
+                days_diff = (now - last_date).days if hasattr((now - last_date), "days") else 15
+                is_recent = days_diff <= 30
+            
+            mandates.append({
+                "label": label,
+                "amount": round(avg_amt, 2),
+                "due_day": due_day,
+                "status": "PAID" if is_recent else "UPCOMING",
+            })
+
+        if not mandates:
+            merchant_groups: dict[str, list] = defaultdict(list)
+            for d in debits:
+                desc = (getattr(d, "description", "") or "General Recurring Debit").strip()
+                merchant_groups[desc].append(d)
+            
+            for m_desc, m_txns in merchant_groups.items():
+                if len(m_txns) >= 2 or any(getattr(t, "amount", 0) > 3000 for t in m_txns):
+                    avg_amt = sum(getattr(t, "amount", 0.0) for t in m_txns) / len(m_txns)
+                    first_txn = m_txns[0]
+                    due_day = getattr(first_txn.transaction_date, "day", 10) if hasattr(first_txn, "transaction_date") and first_txn.transaction_date else 10
+                    mandates.append({
+                        "label": m_desc[:32],
+                        "amount": round(avg_amt, 2),
+                        "due_day": due_day,
+                        "status": "PAID",
+                    })
+                if len(mandates) >= 5:
+                    break
+
+        return mandates
 
     def _compute_changes(self, recent_txns, baseline_txns, monthly_income: float) -> list[ChangeSignal]:
         """Detect significant changes from baseline."""
@@ -493,7 +723,7 @@ class FinancialTwinService:
         else:
             reasoning = f"Purchase creates a shortfall of ₹{shortfall:,.0f}. Recommended: save for {months_needed or 3} months or consider the ₹{safer_low:,.0f}–₹{safer_high:,.0f} range."
 
-        return AffordabilityResponse(
+        res = AffordabilityResponse(
             target_amount=target,
             affordable=affordable,
             current_balance=current_balance,
@@ -511,3 +741,18 @@ class FinancialTwinService:
             recommended_delay_months=months_needed,
             reasoning=reasoning,
         )
+
+        try:
+            from app.utils.terminal_logger import log_affordability_event
+            log_affordability_event(
+                persona_id=persona_id,
+                target_amount=target,
+                verdict=affordable,
+                reasoning=reasoning,
+                current_balance=current_balance,
+                post_emergency_months=post_emergency,
+            )
+        except Exception:
+            pass
+
+        return res

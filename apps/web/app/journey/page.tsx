@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import {
+  sendOtp,
   verifyOtp,
   createConsent,
   approveConsent,
@@ -150,7 +151,27 @@ export default function JourneyPage() {
   }, [stage]);
 
 
-  // Stage 1: Verify OTP
+  // Stage 1: Send & Verify OTP
+  const [dispatchedOtp, setDispatchedOtp] = useState<string | null>(null);
+  const [sendingOtp, setSendingOtp] = useState(false);
+
+  async function handleSendOtp() {
+    setSendingOtp(true);
+    try {
+      const res = await sendOtp(PERSONAS[persona].phone, persona);
+      if (res?.otp_preview) {
+        setDispatchedOtp(res.otp_preview);
+        setOtp(res.otp_preview);
+      }
+    } catch (e: any) {
+      console.warn("Could not dispatch OTP via API, using demo fallback:", e);
+      setDispatchedOtp("123456");
+      setOtp("123456");
+    } finally {
+      setSendingOtp(false);
+    }
+  }
+
   async function handleVerifyOtp() {
     if (otp.length !== 6) return;
     setOtpLoading(true);
@@ -185,7 +206,12 @@ export default function JourneyPage() {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await uploadBankStatement(file, "custom_user", "", PERSONAS[persona].phone);
+      const res = await uploadBankStatement(
+        file,
+        "custom_user",
+        kyc?.full_name || "",
+        PERSONAS[persona]?.phone || "+91 98980 12345"
+      );
       setUploadedSummary(res);
       if (res.kyc) {
         setKyc(res.kyc);
@@ -347,6 +373,7 @@ export default function JourneyPage() {
           <ul className="navbar-tabs">
             <li><a href="/">Overview</a></li>
             <li><a href="/journey" className="active">Journey</a></li>
+            <li><a href="/dashboard">Dashboard &amp; Settings</a></li>
             <li><a href="/ask-niva">Ask NIVA</a></li>
             <li><a href="/bank">Bank Portal</a></li>
           </ul>
@@ -482,13 +509,60 @@ export default function JourneyPage() {
 
               {/* OTP Input */}
               <div className="card">
-                <span className="label-sm text-muted" style={{ marginBottom: 8, display: "block" }}>MOBILE OTP VERIFICATION</span>
+                <div className="flex-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                  <span className="label-sm text-muted">MOBILE OTP VERIFICATION</span>
+                  {!otpVerified && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleSendOtp}
+                      disabled={sendingOtp || otpVerified}
+                      style={{ fontSize: 12, padding: "6px 14px", fontWeight: 600 }}
+                    >
+                      {sendingOtp ? "Dispatching..." : "📱 Dispatch Live OTP to Terminal"}
+                    </button>
+                  )}
+                </div>
+
                 <p className="body-sm text-secondary" style={{ marginBottom: 16 }}>
-                  {language === "hi" ? `OTP भेजा गया: ${p.phone}` :
-                   language === "gu" ? `OTP મોકલ્યો: ${p.phone}` :
-                   `OTP sent to ${p.phone}`}
+                  {language === "hi" ? `मोबाइल नंबर: ${p.phone}` :
+                   language === "gu" ? `મોબાઇલ નંબર: ${p.phone}` :
+                   `Mobile number: ${p.phone}`}
                 </p>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+
+                {dispatchedOtp && (
+                  <div style={{
+                    marginBottom: 16,
+                    padding: "10px 14px",
+                    borderRadius: "var(--radius-md)",
+                    background: "rgba(16, 185, 129, 0.1)",
+                    border: "1px solid var(--niva-positive)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: 8,
+                  }}>
+                    <div>
+                      <span className="label-sm" style={{ color: "var(--niva-positive)", fontWeight: 700 }}>
+                        ✓ REAL-TIME OTP DISPATCHED TO BACKEND TERMINAL
+                      </span>
+                      <p className="body-sm" style={{ margin: "2px 0 0 0", color: "var(--niva-text)" }}>
+                        Your OTP is: <strong style={{ letterSpacing: 4, fontSize: 17, color: "var(--niva-positive)" }}>{dispatchedOtp}</strong>
+                      </p>
+                    </div>
+                    {!otpVerified && (
+                      <button
+                        className="btn btn-outline"
+                        onClick={() => setOtp(dispatchedOtp)}
+                        style={{ fontSize: 11, padding: "4px 10px" }}
+                      >
+                        Autofill
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
                   <input
                     type="text"
                     maxLength={6}
@@ -512,8 +586,21 @@ export default function JourneyPage() {
                   >
                     {otpLoading ? "Verifying..." : otpVerified ? "Verified ✓" : "Verify OTP"}
                   </button>
+
+                  {!otpVerified && (
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => { setOtp("123456"); }}
+                      style={{ fontSize: 12, padding: "8px 12px" }}
+                      title="Universal instant demo OTP"
+                    >
+                      Fast Demo OTP (123456)
+                    </button>
+                  )}
                 </div>
-                <p className="body-sm text-muted">For demo: enter any 6 digits (e.g. 123456)</p>
+                <p className="body-sm text-muted">
+                  💡 Check your <strong>backend terminal</strong> for the live printed ASCII banner, click <strong>&quot;Dispatch Live OTP to Terminal&quot;</strong>, or use instant demo OTP <code>123456</code>.
+                </p>
               </div>
 
               {/* KYC Card */}

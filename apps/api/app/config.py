@@ -10,6 +10,15 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://niva:niva_dev_2026@localhost:5432/niva"
 
+    # Firebase
+    firebase_project_id: str = "niva-banking-daiict"
+    firebase_credentials_path: Optional[str] = None
+    firebase_api_key: Optional[str] = "AIzaSyCbmqNrYcGvmGmxljOJ5QvS8gan_7M645c"
+    firebase_auth_domain: Optional[str] = "niva-banking-daiict.firebaseapp.com"
+    firebase_storage_bucket: Optional[str] = "niva-banking-daiict.firebasestorage.app"
+    firebase_messaging_sender_id: Optional[str] = "36229979845"
+    firebase_app_id: Optional[str] = "1:36229979845:web:eba8407d43515f58d59aac"
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 

@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 
 class GateVerdictResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     product_type: str
     product_name: str
     decision: str  # "RECOMMEND" | "SUPPRESS" | "ESCALATE"
@@ -71,3 +73,42 @@ class AuditLogEntry(BaseModel):
     details: Optional[dict] = None
     policy_id: Optional[str] = None
     integrity_hash: Optional[str] = None
+
+
+class BankSchemeCreateRequest(BaseModel):
+    scheme_id: str
+    name: str
+    category: str = "credit"  # "credit" | "business_credit" | "savings" | "protection" | "recovery"
+    interest_rate_pct: float = 8.5
+    max_amount: float = 50000.0
+    tenure_months: int = 12
+    min_income: float = 15000.0
+    target_life_stage: str = "ALL"  # "MSME_KIRANA_SEASONAL" | "RURAL_AGRI_ALLIED" | "EARLY_CAREER_GIG" | "EARLY_CAREER_SALARIED" | "ESTABLISHED_FAMILY_HIGH_DEBT" | "ALL"
+    max_stress_score: float = 50.0
+    max_dti: float = 0.45
+    risk_weight: float = 0.35
+    is_active: bool = True
+    description: str = ""
+    originator_bank: str = "State Bank of India"
+    subsidized: bool = False
+
+
+class BankSchemeResponse(BaseModel):
+    scheme_id: str
+    name: str
+    category: str
+    interest_rate_pct: float
+    max_amount: float
+    tenure_months: int
+    min_income: float
+    target_life_stage: str
+    max_stress_score: float
+    max_dti: float
+    risk_weight: float
+    is_active: bool
+    description: str
+    originator_bank: str
+    subsidized: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+

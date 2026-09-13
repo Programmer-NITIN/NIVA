@@ -15,7 +15,6 @@ import {
   IdCardIcon,
   FileTextIcon,
   BuildingBankIcon,
-  SparklesIcon,
   VolumeIcon,
   LockIcon,
   SBILogo,
@@ -25,7 +24,7 @@ import {
 } from "@/components/icons";
 
 type Language = "en" | "hi" | "gu";
-type IngestionMethod = "upload" | "setu" | "persona";
+type IngestionMethod = "upload" | "setu";
 
 const BANKS = [
   { id: "sbi", name: "State Bank of India", Logo: SBILogo },
@@ -88,9 +87,6 @@ export default function CustomerOnboardingPage() {
   const [setuData, setSetuData] = useState<any>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Demo persona selection (only used in Instant Demo Telemetry tab)
-  const [selectedPersona, setSelectedPersona] = useState<string>("");
-
   useEffect(() => {
     try {
       const stored = localStorage.getItem("niva_customer_session");
@@ -121,7 +117,10 @@ export default function CustomerOnboardingPage() {
     if (otp.length !== 6) return;
     setOtpLoading(true);
     try {
-      const personaId = selectedPersona || "custom_user";
+      const matchedKey = Object.keys(DEMO_PERSONAS).find(
+        (k) => DEMO_PERSONAS[k]?.phone?.replace(/\D/g, "") === phone.replace(/\D/g, "")
+      );
+      const personaId = matchedKey || "custom_user";
       // try new auth first
       try {
         const { verifyOtpNew } = await import("@/lib/api");
@@ -189,7 +188,7 @@ export default function CustomerOnboardingPage() {
       } catch {
         // sandbox auto-approves
       }
-      const personaToFetch = selectedPersona || (selectedBank === "hdfc" ? "anita_desai" : selectedBank === "bob" ? "vikram_patel" : "rajesh_sharma");
+      const personaToFetch = selectedBank === "hdfc" ? "anita_desai" : selectedBank === "bob" ? "vikram_patel" : "rajesh_sharma";
       try {
         const fiRes = await fetchFIData(cId, personaToFetch, "setu");
         setSetuData(fiRes);
@@ -250,8 +249,7 @@ export default function CustomerOnboardingPage() {
   // Bank data link completion status for active ingestion method
   const isBankDataLinked =
     (ingestionMethod === "upload" && Boolean(uploadedSummary && !uploadedSummary.error)) ||
-    (ingestionMethod === "setu" && Boolean(setuDone)) ||
-    (ingestionMethod === "persona" && Boolean(selectedPersona));
+    (ingestionMethod === "setu" && Boolean(setuDone));
 
   const isCompleteAllowed = Boolean(consentGiven && isBankDataLinked);
 
@@ -261,10 +259,10 @@ export default function CustomerOnboardingPage() {
         return {
           type: "pending",
           text: language === "hi"
-            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर अपनी बैंक स्टेटमेंट फ़ाइल (.csv, .xlsx) अपलोड करें"
+            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर अपनी बैंक स्टेटमेंट फ़ाइल (.csv, .xlsx, .pdf) अपलोड करें"
             : language === "gu"
-            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર તમારું બેંક સ્ટેટમેન્ટ (.csv, .xlsx) અપલોડ કરો"
-            : "⚠️ Please upload and parse your bank statement (.csv, .xlsx) above to proceed",
+            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર તમારું બેંક સ્ટેટમેન્ટ (.csv, .xlsx, .pdf) અપલોડ કરો"
+            : "⚠️ Please upload and parse your bank statement (.csv, .xlsx, .pdf) above to proceed",
         };
       }
       if (ingestionMethod === "setu") {
@@ -275,16 +273,6 @@ export default function CustomerOnboardingPage() {
             : language === "gu"
             ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર 'Connect Live Setu AA Bridge' પર ક્લિક કરો"
             : "⚠️ Please connect via the Live Setu AA Bridge above to link your data",
-        };
-      }
-      if (ingestionMethod === "persona") {
-        return {
-          type: "pending",
-          text: language === "hi"
-            ? "⚠️ आगे बढ़ने के लिए कृपया ऊपर किसी एक प्रोफ़ाइल को चुनें"
-            : language === "gu"
-            ? "⚠️ આગળ વધવા માટે કૃપા કરીને ઉપર કોઈપણ એક પ્રોફાઇલ પસંદ કરો"
-            : "⚠️ Please select a demo telemetry profile above to proceed",
         };
       }
     }
@@ -316,9 +304,7 @@ export default function CustomerOnboardingPage() {
 
     const selectedBankObj = BANKS.find((b) => b.id === selectedBank);
     const resolvedPersonaId =
-      ingestionMethod === "persona" && selectedPersona
-        ? selectedPersona
-        : ingestionMethod === "setu"
+      ingestionMethod === "setu"
         ? (selectedBank === "hdfc" ? "anita_desai" : selectedBank === "bob" ? "vikram_patel" : "rajesh_sharma")
         : (uploadedSummary ? "custom_user" : "custom_user");
 
@@ -638,18 +624,6 @@ export default function CustomerOnboardingPage() {
                     <BuildingBankIcon size={14} color={ingestionMethod === "setu" ? "var(--niva-electric-lime)" : "currentColor"} />
                     Live Setu AA Bridge
                   </button>
-                  <button
-                    onClick={() => setIngestionMethod("persona")}
-                    style={{
-                      flex: 1, padding: "8px 16px", borderRadius: "var(--radius-pill)", border: "none", cursor: "pointer",
-                      background: ingestionMethod === "persona" ? "var(--niva-deep-forest)" : "transparent",
-                      color: ingestionMethod === "persona" ? "var(--niva-electric-lime)" : "var(--niva-text-secondary)",
-                      fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    }}
-                  >
-                    <SparklesIcon size={14} color={ingestionMethod === "persona" ? "var(--niva-electric-lime)" : "currentColor"} />
-                    Instant Demo Telemetry
-                  </button>
                 </div>
 
                 {/* ─── OPTION 1: Upload Bank Statement ─── */}
@@ -836,54 +810,6 @@ export default function CustomerOnboardingPage() {
                               ₹{(setuData?.accounts?.[0]?.current_balance ?? (selectedBank === "hdfc" ? 184500 : selectedBank === "bob" ? 12300 : 50700)).toLocaleString("en-IN")}
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* ─── OPTION 3: Instant Demo Telemetry (Demo Personas live HERE) ─── */}
-                {ingestionMethod === "persona" && (
-                  <div style={{ padding: "12px 0" }}>
-                    <p className="body-sm text-secondary" style={{ marginBottom: 14, textAlign: "center" }}>
-                      {language === "hi"
-                        ? "नीचे किसी भी प्रोफ़ाइल को चुनें — प्रत्येक में पूर्व-सत्यापित ReBIT 1.1 लेनदेन डेटासेट है।"
-                        : "Select any demo account below to instantly load pre-verified ReBIT 1.1 transaction data with full Financial Twin telemetry."}
-                    </p>
-
-                    <div className="grid-3" style={{ gap: 12 }}>
-                      {Object.keys(DEMO_PERSONAS).map((pid) => {
-                        const p = DEMO_PERSONAS[pid];
-                        const active = selectedPersona === pid;
-                        const stressColor = p.stress === "Low" ? "var(--niva-positive)" : p.stress === "Critical" ? "var(--niva-danger)" : "var(--niva-warning)";
-                        return (
-                          <button
-                            key={pid}
-                            onClick={() => setSelectedPersona(pid)}
-                            style={{
-                              padding: "16px", borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "left",
-                              border: active ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
-                              background: active ? "var(--niva-canvas)" : "var(--niva-canvas-subtle)",
-                              transition: "all 0.2s ease",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                              <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-                              <span style={{ fontSize: 10, fontWeight: 700, color: stressColor, padding: "2px 8px", borderRadius: "var(--radius-pill)", background: `${stressColor}15`, border: `1px solid ${stressColor}40` }}>
-                                {p.stress}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--niva-text-muted)", marginTop: 2 }}>{p.city} • {p.bank}</div>
-                            <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 8, lineHeight: 1.4 }}>{p.desc}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {selectedPersona && (
-                      <div style={{ textAlign: "center", marginTop: 16, animation: "fadeSlideUp 0.2s ease forwards" }}>
-                        <div className="chip chip-positive" style={{ fontSize: 12, padding: "6px 16px" }}>
-                          ✓ {DEMO_PERSONAS[selectedPersona].name} — Pre-seeded Financial Twin Ready
                         </div>
                       </div>
                     )}

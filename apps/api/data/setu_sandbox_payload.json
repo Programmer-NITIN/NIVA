@@ -1,0 +1,312 @@
+{
+  "status": "SUCCESS",
+  "consent_id": "c9a41e73-8d02-4bb3-bc52-setu-sandbox-aa",
+  "data_session_id": "ds-setu-sandbox-99481230",
+  "timestamp": "2026-09-12T10:00:00Z",
+  "customer": {
+    "name": "Kailash Verma",
+    "phone": "+919811122334",
+    "email": "kailash.verma@example.com",
+    "pan": "BKPVR9918K",
+    "masked_aadhaar": "XXXX-XXXX-9918",
+    "dob": "1988-05-18",
+    "address": "B-42, Sector 18, Noida, Gautam Buddha Nagar, Uttar Pradesh - 201301"
+  },
+  "consent_artefact": {
+    "consent_mode": "STORE",
+    "fetch_type": "PERIODIC",
+    "consent_types": ["TRANSACTIONS", "PROFILE", "SUMMARY"],
+    "fi_types": ["DEPOSIT"],
+    "data_consumer": {
+      "id": "FIU-NIVA-BHARAT",
+      "name": "NIVA Responsible Financial Platform"
+    },
+    "data_provider": {
+      "id": "FIP-AXIS-BANK",
+      "name": "Axis Bank Ltd"
+    },
+    "purpose": {
+      "code": "101",
+      "refUri": "https://api.rebit.org.in/aa/purpose/101.xml",
+      "text": "Responsible financial assessment, cashflow health monitoring, and personalized credit gate analysis",
+      "category": {
+        "type": "Personal Finance Management"
+      }
+    },
+    "data_life": {
+      "unit": "MONTH",
+      "value": 12
+    },
+    "frequency": {
+      "unit": "DAY",
+      "value": 1
+    },
+    "data_range": {
+      "from": "2026-06-01T00:00:00Z",
+      "to": "2026-09-10T23:59:59Z"
+    }
+  },
+  "accounts": [
+    {
+      "fip_id": "AXIS",
+      "fip_name": "Axis Bank Ltd",
+      "account_type": "DEPOSIT",
+      "account_category": "SAVINGS",
+      "masked_number": "XXXX-XXXX-8231",
+      "ifsc": "UTIB0000005",
+      "branch": "Connaught Place, New Delhi",
+      "currency": "INR",
+      "current_balance": 48250.0,
+      "summary": {
+        "current_balance": 48250.0,
+        "balance_date": "2026-09-10T18:00:00Z",
+        "type": "SAVINGS",
+        "status": "ACTIVE",
+        "branch": "Connaught Place, New Delhi",
+        "facility": "OD_NOT_AVAILABLE"
+      },
+      "transactions": [
+        {
+          "txn_id": "TXN-SETU-001",
+          "type": "CREDIT",
+          "mode": "NEFT",
+          "amount": 48000.0,
+          "balance_after": 58200.0,
+          "narration": "NEFT-CR/MONTHLY BUSINESS INFLOW/SUPPLIES",
+          "merchant_name": "Client Inflow",
+          "category": "salary",
+          "transaction_date": "2026-06-02T10:30:00Z",
+          "reference_id": "SETU-REF-001"
+        },
+        {
+          "txn_id": "TXN-SETU-002",
+          "type": "DEBIT",
+          "mode": "ACH",
+          "amount": 4850.0,
+          "balance_after": 53350.0,
+          "narration": "ACH DEBIT / AXIS TWO WHEELER LOAN EMI",
+          "merchant_name": "Axis Loans",
+          "category": "emi",
+          "transaction_date": "2026-06-05T08:15:00Z",
+          "reference_id": "SETU-REF-002"
+        },
+        {
+          "txn_id": "TXN-SETU-003",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 3200.0,
+          "balance_after": 50150.0,
+          "narration": "UPI/P2M/ZEPTO GROCERIES NOIDA",
+          "merchant_name": "Zepto",
+          "category": "groceries",
+          "transaction_date": "2026-06-08T14:20:00Z",
+          "reference_id": "SETU-REF-003"
+        },
+        {
+          "txn_id": "TXN-SETU-004",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 1850.0,
+          "balance_after": 48300.0,
+          "narration": "UPI/ELECTRICITY BILL UPPCL NOIDA",
+          "merchant_name": "UPPCL",
+          "category": "utilities",
+          "transaction_date": "2026-06-12T11:00:00Z",
+          "reference_id": "SETU-REF-004"
+        },
+        {
+          "txn_id": "TXN-SETU-005",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 1200.0,
+          "balance_after": 47100.0,
+          "narration": "UPI/IOCL FUEL PETROL NOIDA SEC 18",
+          "merchant_name": "Indian Oil",
+          "category": "transport",
+          "transaction_date": "2026-06-16T19:30:00Z",
+          "reference_id": "SETU-REF-005"
+        },
+        {
+          "txn_id": "TXN-SETU-006",
+          "type": "CREDIT",
+          "mode": "UPI",
+          "amount": 7500.0,
+          "balance_after": 54600.0,
+          "narration": "UPI/P2P/STORE CUSTOMER ORDER INFLOW",
+          "merchant_name": "Customer Payment",
+          "category": "salary",
+          "transaction_date": "2026-06-21T17:45:00Z",
+          "reference_id": "SETU-REF-006"
+        },
+        {
+          "txn_id": "TXN-SETU-007",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 850.0,
+          "balance_after": 53750.0,
+          "narration": "UPI/AIRTEL BROADBAND NOIDA BILL",
+          "merchant_name": "Airtel",
+          "category": "utilities",
+          "transaction_date": "2026-06-25T10:00:00Z",
+          "reference_id": "SETU-REF-007"
+        },
+        {
+          "txn_id": "TXN-SETU-008",
+          "type": "CREDIT",
+          "mode": "NEFT",
+          "amount": 48000.0,
+          "balance_after": 101750.0,
+          "narration": "NEFT-CR/MONTHLY BUSINESS INFLOW/SUPPLIES",
+          "merchant_name": "Client Inflow",
+          "category": "salary",
+          "transaction_date": "2026-07-02T10:30:00Z",
+          "reference_id": "SETU-REF-008"
+        },
+        {
+          "txn_id": "TXN-SETU-009",
+          "type": "DEBIT",
+          "mode": "ACH",
+          "amount": 4850.0,
+          "balance_after": 96900.0,
+          "narration": "ACH DEBIT / AXIS TWO WHEELER LOAN EMI",
+          "merchant_name": "Axis Loans",
+          "category": "emi",
+          "transaction_date": "2026-07-05T08:15:00Z",
+          "reference_id": "SETU-REF-009"
+        },
+        {
+          "txn_id": "TXN-SETU-010",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 25000.0,
+          "balance_after": 71900.0,
+          "narration": "UPI/P2M/WHOLESALE SPARE PARTS STOCK ADVANCE",
+          "merchant_name": "Distributor",
+          "category": "shopping",
+          "transaction_date": "2026-07-09T12:00:00Z",
+          "reference_id": "SETU-REF-010"
+        },
+        {
+          "txn_id": "TXN-SETU-011",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 3400.0,
+          "balance_after": 68500.0,
+          "narration": "UPI/P2M/ZEPTO GROCERIES NOIDA",
+          "merchant_name": "Zepto",
+          "category": "groceries",
+          "transaction_date": "2026-07-14T15:30:00Z",
+          "reference_id": "SETU-REF-011"
+        },
+        {
+          "txn_id": "TXN-SETU-012",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 2200.0,
+          "balance_after": 66300.0,
+          "narration": "UPI/ELECTRICITY BILL UPPCL NOIDA",
+          "merchant_name": "UPPCL",
+          "category": "utilities",
+          "transaction_date": "2026-07-18T10:00:00Z",
+          "reference_id": "SETU-REF-012"
+        },
+        {
+          "txn_id": "TXN-SETU-013",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 4200.0,
+          "balance_after": 62100.0,
+          "narration": "UPI/P2M/APOLLO PHARMACY NOIDA HEALTH",
+          "merchant_name": "Apollo Pharmacy",
+          "category": "health",
+          "transaction_date": "2026-07-24T18:00:00Z",
+          "reference_id": "SETU-REF-013"
+        },
+        {
+          "txn_id": "TXN-SETU-014",
+          "type": "CREDIT",
+          "mode": "NEFT",
+          "amount": 48000.0,
+          "balance_after": 110100.0,
+          "narration": "NEFT-CR/MONTHLY BUSINESS INFLOW/SUPPLIES",
+          "merchant_name": "Client Inflow",
+          "category": "salary",
+          "transaction_date": "2026-08-02T10:30:00Z",
+          "reference_id": "SETU-REF-014"
+        },
+        {
+          "txn_id": "TXN-SETU-015",
+          "type": "DEBIT",
+          "mode": "ACH",
+          "amount": 4850.0,
+          "balance_after": 105250.0,
+          "narration": "ACH DEBIT / AXIS TWO WHEELER LOAN EMI",
+          "merchant_name": "Axis Loans",
+          "category": "emi",
+          "transaction_date": "2026-08-05T08:15:00Z",
+          "reference_id": "SETU-REF-015"
+        },
+        {
+          "txn_id": "TXN-SETU-016",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 38000.0,
+          "balance_after": 67250.0,
+          "narration": "UPI/P2M/WHOLESALE PARTS INVENTORY EXPANSION",
+          "merchant_name": "Auto Spares Wholesale",
+          "category": "shopping",
+          "transaction_date": "2026-08-10T11:45:00Z",
+          "reference_id": "SETU-REF-016"
+        },
+        {
+          "txn_id": "TXN-SETU-017",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 1500.0,
+          "balance_after": 65750.0,
+          "narration": "UPI/IOCL FUEL NOIDA",
+          "merchant_name": "Indian Oil",
+          "category": "transport",
+          "transaction_date": "2026-08-18T17:15:00Z",
+          "reference_id": "SETU-REF-017"
+        },
+        {
+          "txn_id": "TXN-SETU-018",
+          "type": "CREDIT",
+          "mode": "NEFT",
+          "amount": 48000.0,
+          "balance_after": 113750.0,
+          "narration": "NEFT-CR/MONTHLY BUSINESS INFLOW/SUPPLIES",
+          "merchant_name": "Client Inflow",
+          "category": "salary",
+          "transaction_date": "2026-09-02T10:30:00Z",
+          "reference_id": "SETU-REF-018"
+        },
+        {
+          "txn_id": "TXN-SETU-019",
+          "type": "DEBIT",
+          "mode": "ACH",
+          "amount": 4850.0,
+          "balance_after": 108900.0,
+          "narration": "ACH DEBIT / AXIS TWO WHEELER LOAN EMI",
+          "merchant_name": "Axis Loans",
+          "category": "emi",
+          "transaction_date": "2026-09-05T08:15:00Z",
+          "reference_id": "SETU-REF-019"
+        },
+        {
+          "txn_id": "TXN-SETU-020",
+          "type": "DEBIT",
+          "mode": "UPI",
+          "amount": 2100.0,
+          "balance_after": 106800.0,
+          "narration": "UPI/ELECTRICITY BILL UPPCL NOIDA",
+          "merchant_name": "UPPCL",
+          "category": "utilities",
+          "transaction_date": "2026-09-08T10:00:00Z",
+          "reference_id": "SETU-REF-020"
+        }
+      ]
+    }
+  ]
+}

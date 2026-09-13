@@ -5,21 +5,44 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-function getAuthHeader(): Record<string,string> {
-  if (typeof window==="undefined") return {};
-  const t = localStorage.getItem("niva_token");
-  return t ? { Authorization: `Bearer ${t}` } : {};
+export function getAuthToken(): string | null {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("niva_auth_token") || localStorage.getItem("niva_token");
+  }
+  return null;
+}
+
+export function setAuthToken(token: string) {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("niva_auth_token", token);
+    localStorage.setItem("niva_token", token);
+  }
+}
+
+export function clearAuthToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("niva_auth_token");
+    localStorage.removeItem("niva_token");
+  }
+}
+
+function getAuthHeader(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options?.headers as Record<string, string>),
+  };
+
   const res = await fetch(`${API_BASE}/api/v1${endpoint}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeader(),
-      ...options?.headers,
-    },
-    credentials: "include",
     ...options,
+    headers,
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -30,31 +53,125 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   return res.json();
 }
 
-// ── Auth Endpoints ───────────────────────────────────────────
-export async function sendOtp(phone:string){ return fetchAPI<any>("/auth/send-otp",{method:"POST",body:JSON.stringify({phone})});}
-export async function verifyOtpNew(phone:string, otp:string){
-  const res = await fetchAPI<any>("/auth/verify-otp",{method:"POST",body:JSON.stringify({phone,otp})});
-  if(res.access_token) localStorage.setItem("niva_token", res.access_token);
+// ── Auth & Journey Endpoints ─────────────────────────────────
+
+export async function sendOtp(phone: string, personaId?: string) {
+  return fetchAPI<any>("/journey/send-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, persona_id: personaId }),
+  });
+}
+
+export async function verifyOtp(phone: string, otp: string, personaId: string) {
+  const res = await fetchAPI<any>("/journey/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, otp, persona_id: personaId }),
+  });
+  if (res.access_token) {
+    setAuthToken(res.access_token);
+  }
   return res;
 }
-export async function getMe(){ return fetchAPI<any>("/auth/me");}
-export async function resetDemo(){ return fetchAPI<any>("/demo/reset",{method:"POST"});}
-export async function getPots(personaId:string){ return fetchAPI<any>(`/pots/${personaId}`);}
-export async function sweepPot(personaId:string, amount:number, to_pot="Emergency"){ return fetchAPI<any>("/pots/sweep",{method:"POST",body:JSON.stringify({persona_id:personaId, amount, to_pot})});}
-export async function releasePot(personaId:string, amount:number, from_pot="Dukaan Stock"){ return fetchAPI<any>("/pots/release",{method:"POST",body:JSON.stringify({persona_id:personaId, amount, from_pot})});}
-export async function createPot(personaId:string, name:string, target:number, initial_balance=0, auto_sweep_pct=10, icon="🏺"){
-  return fetchAPI<any>("/pots/create", {method:"POST", body:JSON.stringify({persona_id:personaId, name, target, initial_balance, auto_sweep_pct, icon})});
+
+export async function verifyOtpNew(phone: string, otp: string) {
+  const res = await fetchAPI<any>("/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, otp }),
+  });
+  if (res.access_token) {
+    setAuthToken(res.access_token);
+  }
+  return res;
 }
-export async function deletePot(personaId:string, potId:string){
-  return fetchAPI<any>(`/pots/${personaId}/${potId}`, {method:"DELETE"});
+
+export async function getMe() {
+  return fetchAPI<any>("/auth/me");
 }
-export async function runPotsAutopilot(personaId:string){
-  return fetchAPI<any>(`/pots/autopilot/${personaId}`, {method:"POST"});
+
+export async function resetDemo() {
+  return fetchAPI<any>("/demo/reset", { method: "POST" });
 }
-export async function ingestSms(personaId:string, sms_text:string){ return fetchAPI<any>("/sms/ingest",{method:"POST",body:JSON.stringify({persona_id: personaId, sms_text})});}
-export async function getPortfolio(){ return fetchAPI<any>("/portfolio/overview");}
-export async function getBureauLag(personaId:string){ return fetchAPI<any>(`/portfolio/bureau-lag/${personaId}`);}
-export async function getSubscriptions(personaId:string){ return fetchAPI<any>(`/subscriptions/${personaId}`);}
+
+export async function getPots(personaId: string) {
+  return fetchAPI<any>(`/pots/${personaId}`);
+}
+
+export async function sweepPot(personaId: string, amount: number, to_pot = "Emergency") {
+  return fetchAPI<any>("/pots/sweep", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, amount, to_pot }),
+  });
+}
+
+export async function releasePot(personaId: string, amount: number, from_pot = "Dukaan Stock") {
+  return fetchAPI<any>("/pots/release", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, amount, from_pot }),
+  });
+}
+
+export async function createPot(
+  personaId: string,
+  name: string,
+  target: number,
+  initial_balance = 0,
+  auto_sweep_pct = 10,
+  icon = "🏺"
+) {
+  return fetchAPI<any>("/pots/create", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, name, target, initial_balance, auto_sweep_pct, icon }),
+  });
+}
+
+export async function deletePot(personaId: string, potId: string) {
+  return fetchAPI<any>(`/pots/${personaId}/${potId}`, { method: "DELETE" });
+}
+
+export async function runPotsAutopilot(personaId: string) {
+  return fetchAPI<any>(`/pots/autopilot/${personaId}`, { method: "POST" });
+}
+
+export async function ingestSms(personaId: string, sms_text: string) {
+  return fetchAPI<any>("/sms/ingest", {
+    method: "POST",
+    body: JSON.stringify({ persona_id: personaId, sms_text }),
+  });
+}
+
+export async function getPortfolio() {
+  return fetchAPI<any>("/portfolio/overview");
+}
+
+export async function getBureauLag(personaId: string) {
+  return fetchAPI<any>(`/portfolio/bureau-lag/${personaId}`);
+}
+
+export async function getSubscriptions(personaId: string) {
+  return fetchAPI<any>(`/subscriptions/${personaId}`);
+}
+
+export async function loginBankOfficer(officerId = "SBI-OFFICER-7891", pin = "889900") {
+  const res = await fetchAPI<any>("/journey/login-bank-officer", {
+    method: "POST",
+    body: JSON.stringify({ officer_id: officerId, pin }),
+  });
+  if (res.access_token) {
+    setAuthToken(res.access_token);
+  }
+  return res;
+}
+
+export async function getUserProfile(personaId: string) {
+  return fetchAPI<any>(`/journey/profile/${encodeURIComponent(personaId)}`);
+}
+
+export async function updateUserProfile(personaId: string, profileData: any) {
+  return fetchAPI<any>(`/journey/profile/${encodeURIComponent(personaId)}`, {
+    method: "PUT",
+    body: JSON.stringify(profileData),
+  });
+}
 
 // ── AA Endpoints ─────────────────────────────────────────────
 
@@ -142,13 +259,6 @@ export async function switchPersona(personaId: string) {
 
 // ── Journey Endpoints ────────────────────────────────────────
 
-export async function verifyOtp(phone: string, otp: string, personaId: string) {
-  return fetchAPI<any>("/journey/verify-otp", {
-    method: "POST",
-    body: JSON.stringify({ phone, otp, persona_id: personaId }),
-  });
-}
-
 export async function getKycDetails(personaId: string) {
   return fetchAPI<any>(`/journey/kyc/${personaId}`);
 }
@@ -210,34 +320,60 @@ export async function getMLAuditTrail() {
 // ── Advanced Spending, What-If & Bank Console Endpoints ────────
 
 export async function getSpendingAnalysis(personaId: string) {
-  return await fetchAPI<any>(`/twin/${personaId}/spending-analysis`);
+  return fetchAPI<any>(`/twin/${personaId}/spending-analysis`);
 }
 
 export async function simulateStress(personaId: string, shockAmount: number, incomeDropPct: number, shockCategory = "medical") {
-  return await fetchAPI<any>(`/twin/${personaId}/simulate-stress`, {
+  return fetchAPI<any>(`/twin/${personaId}/simulate-stress`, {
     method: "POST",
     body: JSON.stringify({ shock_amount: shockAmount, income_drop_pct: incomeDropPct, shock_category: shockCategory }),
   });
 }
 
 export async function getGatePolicies() {
-  return await fetchAPI<any>("/bank/gate-policies");
+  return fetchAPI<any>("/bank/gate-policies");
 }
 
 export async function getRebitTelemetry(personaId: string) {
-  return await fetchAPI<any>(`/bank/rebit-telemetry/${personaId}`);
+  return fetchAPI<any>(`/bank/rebit-telemetry/${personaId}`);
 }
 
 export async function executeBankAction(personaId: string, actionType: string, notes = "") {
-  return await fetchAPI<any>("/bank/actions/restructure", {
+  return fetchAPI<any>("/bank/actions/restructure", {
     method: "POST",
     body: JSON.stringify({ persona_id: personaId, action_type: actionType, notes }),
   });
 }
 
 export async function assignBankCounselor(personaId: string, counselorName = "Kavita Nair (Senior Credit Counselor)") {
-  return await fetchAPI<any>("/bank/actions/counselor", {
+  return fetchAPI<any>("/bank/actions/counselor", {
     method: "POST",
     body: JSON.stringify({ persona_id: personaId, counselor_name: counselorName }),
+  });
+}
+
+// ── Bank Schemes Management Endpoints ──────────
+
+export async function getBankSchemes(activeOnly = false) {
+  return fetchAPI<{ schemes: any[]; total: number }>(`/bank/schemes${activeOnly ? "?active_only=true" : ""}`);
+}
+
+export async function createBankScheme(schemeData: any) {
+  return fetchAPI<any>("/bank/schemes", {
+    method: "POST",
+    body: JSON.stringify(schemeData),
+  });
+}
+
+export async function updateBankScheme(schemeId: string, updates: any) {
+  return fetchAPI<any>(`/bank/schemes/${schemeId}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteBankScheme(schemeId: string) {
+  return fetchAPI<any>(`/bank/schemes/${schemeId}`, {
+    method: "DELETE",
   });
 }

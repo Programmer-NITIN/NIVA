@@ -23,19 +23,20 @@ logger = logging.getLogger(__name__)
 
 # Known category keywords for Indian banking narration
 CATEGORY_KEYWORDS = {
+    "family_support": ["father", "pocket money", "allowance", "parent", "mother", "family support", "p2p", "emergency inflow", "guardian"],
+    "education": ["college", "daiict", "textbook", "stationery", "xerox", "assignment", "lab manual", "lab", "tuition", "school", "print", "manual", "course", "exam fee", "library"],
     "salary": ["salary", "payroll", "neft-cr", "direct dep", "stipend", "monthly inflow", "store inflow", "sales collection", "cash sales"],
     "emi": ["emi", "loan", "bajaj", "hdb", "chola", "home loan", "auto debit loan", "nach", "ecs"],
     "groceries": ["dmart", "blinkit", "zepto", "instamart", "bigbasket", "kirana", "supermarket", "provision", "reliance fresh", "provisions"],
     "health": ["hospital", "pharmacy", "apollo", "medplus", "clinic", "diagnostic", "dr.", "medical", "pharma", "health", "suraksha", "premium", "cult fit", "fitness", "gym", "ergo"],
-    "utilities": ["electricity", "bescom", "torrent", "adani elec", "airtel", "jio", "vodafone", "water bill", "gas", "indane", "hpcl", "broadband", "recharge", "png bill", "power"],
-    "dining": ["swiggy", "zomato", "restaurant", "cafe", "mcdonald", "hotel", "food delivery"],
+    "dining": ["canteen", "mess", "dining", "swiggy", "zomato", "restaurant", "cafe", "mcdonald", "hotel", "food delivery", "chai", "tapri", "amul", "maggi", "pizza", "dominos", "subway", "breakfast", "lunch", "dinner", "sandwich", "parlour", "food", "snacks", "coffee"],
+    "transport": ["metro", "gsrtc", "bus", "auto", "train", "ticket", "fare", "uber", "ola", "rapido", "petrol", "fuel", "iocl", "bpcl", "irctc", "commute"],
+    "utilities": ["electricity", "bescom", "torrent", "adani elec", "airtel", "jio", "vodafone", "water bill", "gas", "indane", "hpcl", "broadband", "recharge", "png bill", "power", "fibernet"],
     "shopping": ["amazon", "flipkart", "myntra", "meesho", "zudio", "retail", "zara", "mall", "lifestyle", "forum", "shopping"],
-    "transport": ["uber", "ola", "rapido", "petrol", "fuel", "iocl", "bpcl", "metro", "irctc"],
     "entertainment": ["netflix", "prime", "hotstar", "bookmyshow", "pvr", "cinema"],
     "investment": ["zerodha", "groww", "sip", "mutual fund", "uti", "sbi mf", "ppf", "broking"],
     "rent": ["rent", "landlord", "housing", "nobroker", "flat rent", "apartment rent"],
     "charges": ["bounce", "penalty", "late fee", "ach debit return", "ecs reject", "annual fee", "min bal", "return fee"],
-    "family_support": ["family support", "p2p", "emergency inflow"],
     "business": ["inventory", "wholesale", "raw material", "textile", "distributor"],
 }
 
@@ -56,6 +57,18 @@ BANK_IFSC_PREFIX = {
 
 def detect_category(narration: str) -> str:
     n_lower = narration.lower()
+    # High-priority specific rule matching
+    if any(k in n_lower for k in ["father", "pocket money", "allowance", "guardian"]):
+        return "family_support"
+    if any(k in n_lower for k in ["metro", "gsrtc", "bus fare", "rapido", "auto share", "irctc"]):
+        return "transport"
+    if any(k in n_lower for k in ["stationery", "xerox", "textbook", "lab assignment", "lab manual", "tuition"]):
+        return "education"
+    if any(k in n_lower for k in ["hostel mess", "canteen", "dining charges", "chai tapri", "swiggy", "zomato", "amul", "sandwich", "maggi"]):
+        return "dining"
+    if any(k in n_lower for k in ["airtel", "jio", "broadband", "bescom", "torrent power"]):
+        return "utilities"
+
     for cat, keywords in CATEGORY_KEYWORDS.items():
         if any(k in n_lower for k in keywords):
             return cat

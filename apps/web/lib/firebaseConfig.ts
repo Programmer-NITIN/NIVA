@@ -19,7 +19,7 @@ import {
 import { getAuth, Auth } from "firebase/auth";
 
 export const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCbmqNrYcGvmGmxljOJ5QvS8gan_7M645c",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "niva-banking-daiict.firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "niva-banking-daiict",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "niva-banking-daiict.firebasestorage.app",

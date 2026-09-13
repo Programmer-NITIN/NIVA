@@ -135,7 +135,7 @@ class FinancialTwinService:
         if profile_overrides and profile_overrides.get("declared_essential_expenses") is not None and float(profile_overrides["declared_essential_expenses"]) > 0:
             declared_ess = float(profile_overrides["declared_essential_expenses"])
             tot_exp = declared_ess + expenses.discretionary
-            ratio = round(declared_ess / tot_exp, 2) if tot_exp > 0 else 0.5
+            ratio = round((declared_ess / tot_exp) * 100, 1) if tot_exp > 0 else 50.0
             expenses = ExpenseMetrics(
                 essential=declared_ess,
                 discretionary=expenses.discretionary,
@@ -253,7 +253,9 @@ class FinancialTwinService:
         essential = sum(t.amount for t in recent_debits if t.category in ESSENTIAL_CATEGORIES)
         discretionary = sum(t.amount for t in recent_debits if t.category in DISCRETIONARY_CATEGORIES)
 
-        baseline_total = sum(t.amount for t in baseline_debits) / 3 if baseline_debits else total
+        baseline_days = (max(t.transaction_date for t in baseline_debits) - min(t.transaction_date for t in baseline_debits)).days if len(baseline_debits) >= 2 else 30
+        baseline_months = max(1.0, baseline_days / 30.0)
+        baseline_total = sum(t.amount for t in baseline_debits) / baseline_months if baseline_debits else total
         trend = round(((total - baseline_total) / baseline_total) * 100, 1) if baseline_total > 0 else 0
 
         return ExpenseMetrics(
@@ -276,9 +278,12 @@ class FinancialTwinService:
             cat = t.category or "other"
             recent_by_cat[cat] += t.amount
 
+        baseline_days = (max(t.transaction_date for t in baseline_debits) - min(t.transaction_date for t in baseline_debits)).days if len(baseline_debits) >= 2 else 30
+        baseline_months = max(1.0, baseline_days / 30.0)
+
         for t in baseline_debits:
             cat = t.category or "other"
-            baseline_by_cat[cat] += t.amount / 3  # Normalize to monthly
+            baseline_by_cat[cat] += t.amount / baseline_months  # Normalize to monthly
 
         total_recent = sum(recent_by_cat.values())
         categories = []
@@ -535,7 +540,7 @@ class FinancialTwinService:
     def _detect_recurring_mandates(self, txns: list) -> list[dict]:
         """
         Dynamically detects recurring debit mandates from real transaction patterns
-        (e.g., monthly EMI, house rent, utilities, insurance, SIP investments).
+        (e.g., student hostel mess, telecom recharge, transit pass, apartment rent, EMI, utilities, SIP).
         """
         mandates = []
         if not txns:
@@ -545,30 +550,40 @@ class FinancialTwinService:
         grouped: dict[str, list] = defaultdict(list)
 
         MANDATE_KEYWORDS = {
-            "Apartment Rent / Lease": ["rent", "landlord", "housing", "society maintenance"],
+            "Hostel Mess & Dining": ["mess", "hostel mess", "canteen fee", "dining club", "mess charge", "food mess"],
+            "Telecom & Mobile Plan": ["airtel", "jio", "vi recharge", "vodafone", "bsnl", "broadband", "fibernet", "act corp"],
+            "Metro & Commute Pass": ["metro", "metro card", "bus pass", "transit pass", "gsrtc"],
+            "Education & Academic Fees": ["tuition", "college fee", "exam fee", "coursera", "udemy", "xerox copy", "book store"],
+            "Apartment Rent / PG": ["rent", "landlord", "pg fee", "society maintenance", "hostel rent"],
             "Home / Personal Loan EMI": ["emi", "loan", "hdb", "bajaj", "credit card payment", "equitas"],
-            "Electricity & Power Bill": ["bescom", "ugvcl", "tneb", "mseb", "electricity", "power"],
-            "Telecom & Broadband": ["airtel", "jio", "act corp", "broadband", "fibernet", "bsnl"],
+            "Electricity & Power Bill": ["bescom", "ugvcl", "tneb", "mseb", "torrent power", "electricity", "power bill"],
             "Insurance Premium (Life/Health)": ["lic", "insurance", "hdfc ergo", "star health", "policy"],
-            "Wealth SIP / Mutual Fund": ["zerodha", "groww", "uti", "mf", "sip", "kuvera", "camsonline"],
-            "Water & Municipal Tax": ["water board", "municipal", "bwssb", "tax"],
+            "Wealth SIP / Mutual Fund": ["zerodha", "groww", "uti mutual fund", "sip ", "kuvera", "camsonline", "mutual fund"],
+            "Water & Municipal Tax": ["water board", "municipal", "bwssb", "water bill"],
         }
 
         for d in debits:
-            desc = (getattr(d, "description", "") or "").lower()
+            narr = (getattr(d, "narration", "") or getattr(d, "description", "") or "").lower()
             cat = (getattr(d, "category", "") or "").lower()
             
             matched_label = None
             for label, keywords in MANDATE_KEYWORDS.items():
-                if any(k in desc or k in cat for k in keywords):
+                if any(k in narr for k in keywords):
                     matched_label = label
                     break
             
+            if not matched_label:
+                if cat == "rent":
+                    matched_label = "Apartment Rent / PG"
+                elif cat == "emi":
+                    matched_label = "Home / Personal Loan EMI"
+                elif cat == "insurance":
+                    matched_label = "Insurance Premium (Life/Health)"
+                elif cat == "investment":
+                    matched_label = "Wealth SIP / Mutual Fund"
+            
             if matched_label:
                 grouped[matched_label].append(d)
-            elif cat in ["emi", "rent", "utilities", "insurance", "investment"]:
-                clean_cat = cat.replace("_", " ").title()
-                grouped[f"{clean_cat} Recurring Mandate"].append(d)
 
         now = datetime.utcnow()
         for label, group_txns in grouped.items():
@@ -593,7 +608,7 @@ class FinancialTwinService:
         if not mandates:
             merchant_groups: dict[str, list] = defaultdict(list)
             for d in debits:
-                desc = (getattr(d, "description", "") or "General Recurring Debit").strip()
+                desc = (getattr(d, "narration", "") or getattr(d, "description", "") or "General Recurring Debit").strip()
                 merchant_groups[desc].append(d)
             
             for m_desc, m_txns in merchant_groups.items():

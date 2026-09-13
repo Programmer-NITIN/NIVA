@@ -310,25 +310,33 @@ export default function CustomerDashboardPage() {
       setLifeStage(stageRes);
       const rawAnomalies = anomRes?.flagged_transactions || spendRes?.anomalies_detected || [];
       setAnomalies(Array.isArray(rawAnomalies) ? rawAnomalies : []);
-      if (profileRes) {
-        setProfileData({
-          full_name: profileRes.full_name || session.name || "Customer",
-          phone: profileRes.phone || session.phone || "+91 98765 00000",
-          occupation: profileRes.occupation || "Account Holder",
-          address: profileRes.address || "Verified Banking Address, India",
-          dob: profileRes.dob || "1988-05-18",
-          gender: profileRes.gender || "Verified",
-          dependents: profileRes.dependents !== undefined ? profileRes.dependents : 2,
-          declared_income: profileRes.declared_income !== undefined ? profileRes.declared_income : (twinRes?.income?.monthly_income || session.monthlyIncome || 65000),
-          declared_essential_expenses: profileRes.declared_essential_expenses !== undefined ? profileRes.declared_essential_expenses : (twinRes?.expenses?.essential || session.essentialExpenses || 26300),
-          declared_monthly_emi: profileRes.declared_monthly_emi !== undefined ? profileRes.declared_monthly_emi : (twinRes?.debt?.total_emi || 14200),
-          target_buffer_months: profileRes.target_buffer_months !== undefined ? profileRes.target_buffer_months : 6,
-          risk_tolerance: profileRes.risk_tolerance || "moderate",
-          data_sync_frequency: profileRes.data_sync_frequency || "monthly",
-          allow_responsible_analysis: profileRes.allow_responsible_analysis !== undefined ? profileRes.allow_responsible_analysis : true,
-          language_preference: profileRes.language_preference || language,
-        });
-      }
+      const declaredInc = (profileRes?.declared_income !== undefined && profileRes?.declared_income !== null)
+        ? profileRes.declared_income
+        : (twinRes?.income?.monthly_income || session.monthlyIncome || 65000);
+      const declaredEss = (profileRes?.declared_essential_expenses !== undefined && profileRes?.declared_essential_expenses !== null)
+        ? profileRes.declared_essential_expenses
+        : (twinRes?.expenses?.essential || session.essentialExpenses || 26300);
+      const declaredEmi = (profileRes?.declared_monthly_emi !== undefined && profileRes?.declared_monthly_emi !== null)
+        ? profileRes.declared_monthly_emi
+        : (twinRes?.debt?.total_emi !== undefined ? twinRes.debt.total_emi : 0);
+
+      setProfileData({
+        full_name: profileRes?.full_name || session.name || "Customer",
+        phone: profileRes?.phone || session.phone || "+91 98765 00000",
+        occupation: profileRes?.occupation || "Account Holder",
+        address: profileRes?.address || "Verified Banking Address, India",
+        dob: profileRes?.dob || "1988-05-18",
+        gender: profileRes?.gender || "Verified",
+        dependents: profileRes?.dependents !== undefined ? profileRes.dependents : 2,
+        declared_income: declaredInc,
+        declared_essential_expenses: declaredEss,
+        declared_monthly_emi: declaredEmi,
+        target_buffer_months: profileRes?.target_buffer_months !== undefined ? profileRes.target_buffer_months : 6,
+        risk_tolerance: profileRes?.risk_tolerance || "moderate",
+        data_sync_frequency: profileRes?.data_sync_frequency || "monthly",
+        allow_responsible_analysis: profileRes?.allow_responsible_analysis !== undefined ? profileRes.allow_responsible_analysis : true,
+        language_preference: profileRes?.language_preference || language,
+      });
       if (potsRes?.pots) setPots(potsRes.pots);
       if (subsRes) setSubs(subsRes);
       if (shapRes?.ml_prediction) setShap(shapRes.ml_prediction);
@@ -1249,7 +1257,11 @@ export default function CustomerDashboardPage() {
                 <div className="card" style={{ textAlign: "center" }}>
                   <div className="label-sm text-muted">ESSENTIAL / TOTAL RATIO</div>
                   <div style={{ fontSize: 32, fontWeight: 800, color: "var(--niva-positive)", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
-                    {Math.round(Number(spendingData?.essential_ratio ?? twin?.expenses?.essential_ratio ?? 71.1))}%
+                    {(() => {
+                      const r = Number(spendingData?.essential_ratio ?? twin?.expenses?.essential_ratio ?? 71.1);
+                      const normalized = r <= 1.0 && r > 0 ? r * 100 : r;
+                      return Math.round(normalized);
+                    })()}%
                   </div>
                   <div className="body-sm text-muted" style={{ marginTop: 4 }}>Safe RBI Envelope &lt; 75%</div>
                 </div>
@@ -1269,32 +1281,28 @@ export default function CustomerDashboardPage() {
                       <div key={i} style={{ padding: "10px 14px", background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)" }}>
                         <div className="flex-between" style={{ marginBottom: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <strong style={{ fontSize: 13 }}>{catName}</strong>
+                            <span style={{ fontWeight: 700, fontSize: 13 }}>{catName}</span>
+                            {isSpike && (
+                              <span className="chip chip-warning" style={{ fontSize: 9, padding: "2px 6px" }}>
+                                Spike (+{trendVal}%)
+                              </span>
+                            )}
                             {c.is_essential && (
-                              <span style={{ fontSize: 10, padding: "1px 6px", background: "rgba(22,51,0,0.1)", color: "var(--niva-deep-forest)", borderRadius: 4, fontWeight: 600 }}>
+                              <span className="chip chip-neutral" style={{ fontSize: 9, padding: "2px 6px" }}>
                                 Essential
                               </span>
                             )}
-                            {isSpike && (
-                              <span style={{ fontSize: 10, padding: "1px 6px", background: "var(--niva-warning-bg)", color: "var(--niva-warning)", borderRadius: 4, fontWeight: 700 }}>
-                                Spike (+{Math.round(trendVal)}%)
-                              </span>
-                            )}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                              ₹{amt.toLocaleString("en-IN")}
-                            </span>
-                            <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>({pct.toFixed(1)}%)</span>
-                          </div>
+                          <span style={{ fontWeight: 800, fontSize: 13, color: "var(--niva-obsidian)", fontVariantNumeric: "tabular-nums" }}>
+                            ₹{amt.toLocaleString("en-IN")} <span style={{ fontWeight: 500, fontSize: 11, color: "var(--niva-text-muted)" }}>({pct}%)</span>
+                          </span>
                         </div>
-                        <div style={{ height: 6, background: "var(--niva-canvas-dim)", borderRadius: 3, overflow: "hidden" }}>
+                        <div className="progress-bar-bg" style={{ height: 6 }}>
                           <div
+                            className="progress-bar-fill"
                             style={{
-                              height: "100%",
-                              width: `${Math.min(100, pct * 1.5)}%`,
-                              background: isSpike ? "var(--niva-warning)" : "var(--niva-deep-forest)",
-                              borderRadius: 3,
+                              width: `${Math.min(100, Math.max(5, pct))}%`,
+                              background: c.is_essential ? "var(--niva-deep-forest)" : isSpike ? "var(--niva-warning)" : "var(--niva-electric-lime)",
                             }}
                           />
                         </div>
@@ -1304,73 +1312,46 @@ export default function CustomerDashboardPage() {
                 </div>
               </section>
 
-              {/* Anomaly Detection Alerts (Isolation Forest) */}
-              <section className="card" style={{ border: "1px solid var(--niva-border)" }}>
+              {/* ML Anomaly Alert Strip */}
+              <section className="card" style={{ border: anomalies.length > 0 ? "1px solid rgba(220,38,38,0.3)" : "1px solid var(--niva-border)" }}>
                 <div className="flex-between" style={{ marginBottom: 12 }}>
-                  <div className="flex-gap-sm">
-                    <AlertTriangleIcon size={18} color="var(--niva-warning)" />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <AlertTriangleIcon size={18} color={anomalies.length > 0 ? "var(--niva-danger)" : "var(--niva-warning)"} />
                     <h3 className="title-md">Isolation Forest Anomaly &amp; Outlier Alerts</h3>
                   </div>
-                  <span className="chip chip-neutral" style={{ fontSize: 11 }}>
-                    Dynamic Z-Score &gt; 2.5σ
-                  </span>
+                  <span className="chip chip-neutral" style={{ fontSize: 10 }}>Dynamic Z-Score &gt; 2.5σ</span>
                 </div>
                 <div className="stack-sm">
                   {anomalies.length > 0 ? (
-                    anomalies.map((anom: any, idx: number) => {
-                      const amt = Number(anom.amount) || 0;
-                      const cat = anom.category ? String(anom.category).toUpperCase() : "SPENDING";
-                      const desc = anom.description || anom.narration || anom.merchant_name || `Unusual Transaction in ${cat}`;
-                      const zScore = anom.z_score !== undefined && anom.z_score !== null ? `${Number(anom.z_score).toFixed(1)}σ Outlier` : "Flagged by Isolation Forest";
+                    anomalies.slice(0, 4).map((a: any, idx: number) => {
+                      const desc = a.narration || a.description || a.merchant_name || `Transaction #${idx + 1}`;
+                      const amt = Number(a.amount || 0);
+                      const z = Number(a.z_score || a.score || 0).toFixed(1);
                       return (
-                        <div
-                          key={idx}
-                          style={{
-                            padding: "12px 16px",
-                            borderRadius: "var(--radius-md)",
-                            background: "var(--niva-warning-bg)",
-                            border: "1px solid rgba(217,119,6,0.25)",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 12,
-                          }}
-                        >
+                        <div key={idx} style={{ padding: "10px 14px", background: "rgba(220,38,38,0.04)", borderRadius: "var(--radius-md)", border: "1px solid rgba(220,38,38,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-warning)" }}>
-                              ⚠️ {desc}
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
-                              ID: {anom.transaction_id} • Category: {cat} • Dynamic Anomaly Score: {zScore}
-                              {anom.transaction_date && ` • ${anom.transaction_date}`}
+                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-obsidian)" }}>{desc}</div>
+                            <div style={{ fontSize: 11, color: "var(--niva-danger)", marginTop: 2 }}>
+                              Statistical Outlier: {z}σ standard deviation spike vs baseline
                             </div>
                           </div>
-                          <div style={{ fontWeight: 800, fontSize: 16, color: "var(--niva-obsidian)", fontVariantNumeric: "tabular-nums" }}>
-                            ₹{amt.toLocaleString("en-IN")}
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: "var(--niva-danger)", fontVariantNumeric: "tabular-nums" }}>
+                              ₹{amt.toLocaleString("en-IN")}
+                            </div>
+                            <span className="chip chip-danger" style={{ fontSize: 9, padding: "2px 6px", marginTop: 3 }}>
+                              FLAGGED
+                            </span>
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <div style={{
-                      padding: "16px 20px",
-                      borderRadius: "var(--radius-md)",
-                      background: "rgba(142,242,68,0.08)",
-                      border: "1px solid rgba(22,51,0,0.15)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontSize: 24 }}>🛡️</span>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-deep-forest)" }}>
-                            All Transactions In-Envelope — Zero Statistical Anomalies
-                          </div>
-                          <div style={{ fontSize: 11, color: "var(--niva-text-secondary)", marginTop: 2 }}>
-                            Isolation Forest and Dynamic Z-Score verified all debit transactions conform to your baseline spending envelopes.
-                          </div>
-                        </div>
+                    <div style={{ padding: "12px 14px", background: "rgba(26,107,60,0.05)", borderRadius: "var(--radius-md)", border: "1px solid rgba(26,107,60,0.15)", display: "flex", alignItems: "center", gap: 10 }}>
+                      <ShieldIcon size={18} color="var(--niva-positive)" />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--niva-deep-forest)" }}>All Transactions In-Envelope — Zero Statistical Anomalies</div>
+                        <div style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>Isolation Forest and Dynamic Z-Score verified all debit transactions conform to your baseline spending envelopes.</div>
                       </div>
                       <span className="chip chip-positive" style={{ fontSize: 11 }}>100% In-Envelope</span>
                     </div>
@@ -1384,26 +1365,48 @@ export default function CustomerDashboardPage() {
                   <h3 className="title-md">Upcoming Monthly Mandates &amp; Subscriptions</h3>
                   <span className="label-sm text-muted">AutoPay / NACH Monitored</span>
                 </div>
-                <div className="grid-3" style={{ gap: 12 }}>
-                  {[
-                    { label: "Apartment Rent", amount: 18000, due: "3rd of every month", status: "PAID" },
-                    { label: "Zerodha Wealth SIP", amount: 5000, due: "5th of every month", status: "PAID" },
-                    { label: "Electricity (BESCOM)", amount: 1850, due: "10th of every month", status: "UPCOMING" },
-                  ].map((m, idx) => (
-                    <div key={idx} style={{ padding: 14, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--niva-border)" }}>
-                      <div className="flex-between" style={{ marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>{m.due}</span>
-                        <span className={`chip ${m.status === "PAID" ? "chip-positive" : "chip-neutral"}`} style={{ fontSize: 9 }}>
-                          {m.status}
-                        </span>
+                {(() => {
+                  const activeMandates = (spendingData?.recurring_mandates && spendingData.recurring_mandates.length > 0)
+                    ? spendingData.recurring_mandates
+                    : (subs?.mandates && subs.mandates.length > 0)
+                    ? subs.mandates
+                    : [];
+
+                  if (activeMandates.length === 0) {
+                    return (
+                      <div style={{ padding: "24px 16px", textAlign: "center", background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px dashed var(--niva-border)" }}>
+                        <div style={{ fontSize: 20, marginBottom: 6 }}>🛡️</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "var(--niva-deep-forest)" }}>No Fixed Mandates or Recurring Debt Detected</div>
+                        <p className="body-xs text-muted" style={{ maxWidth: 460, margin: "6px auto 0" }}>
+                          100% In-Envelope — All detected transactions conform to flexible discretionary or ad-hoc essential spending with zero locked AutoPay commitments.
+                        </p>
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{m.label}</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
-                        ₹{m.amount.toLocaleString("en-IN")}
-                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid-3" style={{ gap: 12 }}>
+                      {activeMandates.map((m: any, idx: number) => {
+                        const dueText = m.due || (m.due_day ? `${m.due_day}${m.due_day === 1 ? "st" : m.due_day === 2 ? "nd" : m.due_day === 3 ? "rd" : "th"} of every month` : "Monthly Cycle");
+                        const statusText = m.status || "PAID";
+                        return (
+                          <div key={idx} style={{ padding: 14, background: "var(--niva-canvas-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--niva-border)" }}>
+                            <div className="flex-between" style={{ marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, color: "var(--niva-text-muted)" }}>{dueText}</span>
+                              <span className={`chip ${statusText === "PAID" ? "chip-positive" : "chip-neutral"}`} style={{ fontSize: 9 }}>
+                                {statusText}
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{m.label}</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--niva-deep-forest)", marginTop: 4 }}>
+                              ₹{Number(m.amount || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
               </section>
             </div>
           )}

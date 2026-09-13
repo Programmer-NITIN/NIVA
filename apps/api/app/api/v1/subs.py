@@ -1,26 +1,50 @@
 from fastapi import APIRouter
-from app.services.twin import FinancialTwinService
+from app.services.twin import FinancialTwinService, _uploaded_statements
+from app.providers.aa.mock_rebit import RebitMockAAProvider
 
 router = APIRouter()
 twin_service = FinancialTwinService()
+aa_provider = RebitMockAAProvider()
 
 @router.get("/{persona_id}")
 async def subscriptions(persona_id: str):
     twin = await twin_service.compute_twin(persona_id)
-    # detect subscriptions: categories that are recurring
-    cats = {c.category: c for c in twin.spending_by_category}
-    mandates=[]
-    # heuristics on narration -> already in twin.py hardcoded; expose here with detect
-    candidates = [
-        ("rent", 18000, 3), ("investment", 5000, 5), ("utilities",1850,10),
-        ("entertainment", 499, 12), ("emi", 4200, 14)
-    ]
-    for cat, amt, due in candidates:
-        if cat in cats:
-            mandates.append({"label": cat.replace("_"," ").title(), "category": cat, "amount": amt, "due_day": due, "status": "UPCOMING" if cat=="utilities" else "PAID", "autopay": True})
-    # add generic if missing
-    if not mandates:
-        mandates = [{"label":"Monthly Mandates","category":"other","amount": 2000,"due_day":5,"status":"UPCOMING","autopay":True}]
+    
+    # 1. Fetch real transactions for the persona
+    txns = []
+    if persona_id in _uploaded_statements:
+        txns = getattr(_uploaded_statements[persona_id], "transactions", [])
+    else:
+        try:
+            fi_data = await aa_provider.fetch_fi_data(consent_id="CNST-DEMO", persona_id=persona_id)
+            txns = fi_data.transactions
+        except Exception:
+            txns = []
+            
+    # 2. Dynamically detect recurring mandates from actual transaction patterns
+    detected = twin_service._detect_recurring_mandates(txns)
+    mandates = []
+    for d in detected:
+        mandates.append({
+            "label": d["label"],
+            "category": "recurring",
+            "amount": d["amount"],
+            "due_day": d.get("due_day", 5),
+            "status": d.get("status", "PAID"),
+            "autopay": True,
+        })
+        
     total = sum(m["amount"] for m in mandates)
-    runway_saved = round(total / max(twin.expenses.essential,1) * 30, 1)
-    return {"persona_id": persona_id, "mandates": mandates, "total_autodebit": total, "runway_days_equivalent": runway_saved, "insight": f"₹{total:,.0f}/mo in auto-debits = {runway_saved} days runway. Pause one to extend buffer."}
+    runway_saved = round(total / max(twin.expenses.essential, 1) * 30, 1) if twin.expenses.essential > 0 else 0.0
+    insight = (
+        f"₹{total:,.0f}/mo in auto-debits = {runway_saved} days runway. Pause discretionary mandates to extend buffer."
+        if total > 0
+        else "No active recurring debt mandates or AutoPay deductions detected. 100% discretionary flexibility."
+    )
+    return {
+        "persona_id": persona_id,
+        "mandates": mandates,
+        "total_autodebit": total,
+        "runway_days_equivalent": runway_saved,
+        "insight": insight,
+    }

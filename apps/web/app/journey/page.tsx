@@ -217,7 +217,8 @@ export default function JourneyPage() {
         setKyc(res.kyc);
       }
       setDataFetched(true);
-      const fullData = await getJourneyState("custom_user");
+      const personaIdToFetch = res.persona_id || "custom_user";
+      const fullData = await getJourneyState(personaIdToFetch);
       setJourneyData(fullData);
     } catch (e: any) {
       alert("Statement upload error: " + (e.message || e));

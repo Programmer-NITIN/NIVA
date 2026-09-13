@@ -36,6 +36,8 @@ import {
   RefreshCwIcon,
   SettingsIcon,
   TrendingDownIcon,
+  LogOutIcon,
+  UserIcon,
 } from "@/components/icons";
 import FormattedCopilotOutput from "@/components/FormattedCopilotOutput";
 
@@ -64,6 +66,21 @@ const DEFAULT_SESSION: CustomerSession = {
   essentialExpenses: 26300,
   balance: 50700,
 };
+
+function formatCustomerDisplayName(name: string): string {
+  if (!name) return "Account Holder";
+  const trimmed = name.trim();
+  // If in all caps like "ANITA SURESH DESAI", convert cleanly to Title Case "Anita Suresh Desai"
+  if (trimmed === trimmed.toUpperCase() && trimmed.length > 2) {
+    return trimmed
+      .toLowerCase()
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return trimmed;
+}
 
 const SHAP_FEATURE_INFO: Record<string, { label: string; desc: string }> = {
   merchant_category_entropy: {
@@ -576,22 +593,34 @@ export default function CustomerDashboardPage() {
           {/* Mobile: keep navbar brand + language, desktop tabs hidden via CSS; bottom nav handles navigation */}
           <div className="bottom-nav-spacer" style={{display:"none"}} />
 
-          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Language Selector */}
-            <div style={{ display: "flex", gap: 4 }}>
+          <div className="navbar-right" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {/* Language Segmented Control */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                background: "var(--niva-canvas-subtle)",
+                borderRadius: "var(--radius-pill)",
+                border: "1px solid var(--niva-border)",
+                padding: "2px",
+                height: 35,
+              }}
+            >
               {(["en", "hi", "gu"] as Language[]).map((l) => (
                 <button
                   key={l}
                   onClick={() => setLanguage(l)}
                   style={{
-                    padding: "4px 8px",
+                    padding: "2px 8px",
                     borderRadius: "var(--radius-pill)",
-                    border: language === l ? "2px solid var(--niva-deep-forest)" : "1px solid var(--niva-border)",
+                    border: "none",
                     background: language === l ? "var(--niva-deep-forest)" : "transparent",
                     color: language === l ? "var(--niva-electric-lime)" : "var(--niva-text-muted)",
                     fontSize: 11,
-                    fontWeight: 700,
+                    fontWeight: language === l ? 700 : 500,
                     cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    lineHeight: "18px",
                   }}
                 >
                   {l === "en" ? "EN" : l === "hi" ? "हिन्दी" : "ગુજ"}
@@ -599,85 +628,224 @@ export default function CustomerDashboardPage() {
               ))}
             </div>
 
-            {/* Refresh Analysis Button (No Emoji) */}
+            {/* Refresh Analysis Button */}
             <button
               id="navbar-refresh-btn"
               onClick={handleRefreshAnalysis}
               disabled={refreshing}
               style={{
-                display: "flex",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                background: "var(--niva-deep-forest)",
-                color: "var(--niva-electric-lime)",
+                gap: 5,
+                height: 35,
+                padding: "0 12px",
+                background: "var(--niva-canvas)",
+                color: "var(--niva-deep-forest)",
                 borderRadius: "var(--radius-pill)",
-                border: "1px solid rgba(142,242,68,0.4)",
-                fontSize: 12,
-                fontWeight: 700,
+                border: "1px solid var(--niva-border)",
+                fontSize: 11.5,
+                fontWeight: 600,
                 cursor: "pointer",
-                transition: "all 0.2s ease",
+                transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = "var(--niva-deep-forest)";
+                e.currentTarget.style.background = "rgba(22, 51, 0, 0.04)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = "var(--niva-border)";
+                e.currentTarget.style.background = "var(--niva-canvas)";
               }}
               title="Refresh and analyze financial telemetry"
             >
               <RefreshCwIcon
-                size={13}
-                color="var(--niva-electric-lime)"
+                size={12}
+                color="var(--niva-deep-forest)"
                 className={refreshing ? "spin-animation" : ""}
               />
               <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
             </button>
 
-            {/* Customer Profile Pill (Clicking directly opens Profile & Settings) */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: "1px solid var(--niva-border)" }}>
-              <button
-                id="navbar-customer-profile-btn"
-                onClick={() => setActiveTab(activeTab === "settings" ? "twin" : "settings")}
+            {/* Visual Divider between Utility controls & User Identity */}
+            <div style={{ width: 1, height: 22, background: "var(--niva-border)", margin: "0 2px" }} />
+
+            {/* Customer Profile Button (Clicking directly opens Profile & Settings) */}
+            <button
+              id="navbar-customer-profile-btn"
+              onClick={() => setActiveTab(activeTab === "settings" ? "twin" : "settings")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                height: 35,
+                padding: "3px 12px 3px 4px",
+                background: activeTab === "settings" ? "var(--niva-deep-forest)" : "#ffffff",
+                color: activeTab === "settings" ? "#ffffff" : "var(--niva-obsidian)",
+                borderRadius: "var(--radius-pill)",
+                border: activeTab === "settings"
+                  ? "1.5px solid var(--niva-deep-forest)"
+                  : "1px solid rgba(22, 51, 0, 0.16)",
+                boxShadow: activeTab === "settings"
+                  ? "0 3px 12px rgba(22, 51, 0, 0.22), 0 0 0 2px rgba(142, 242, 68, 0.35)"
+                  : "0 1px 3px rgba(0, 0, 0, 0.04)",
+                cursor: "pointer",
+                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+              onMouseOver={(e) => {
+                if (activeTab !== "settings") {
+                  e.currentTarget.style.borderColor = "var(--niva-deep-forest)";
+                  e.currentTarget.style.background = "rgba(22, 51, 0, 0.03)";
+                  e.currentTarget.style.boxShadow = "0 2px 6px rgba(22, 51, 0, 0.08)";
+                }
+              }}
+              onMouseOut={(e) => {
+                if (activeTab !== "settings") {
+                  e.currentTarget.style.borderColor = "rgba(22, 51, 0, 0.16)";
+                  e.currentTarget.style.background = "#ffffff";
+                  e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.04)";
+                }
+              }}
+              title={
+                language === "hi"
+                  ? "प्रोफ़ाइल और विश्लेषण सेटिंग्स खोलें"
+                  : language === "gu"
+                  ? "પ્રોફાઇલ અને સેટિંગ્સ ખોલો"
+                  : "Click to open Profile & Financial Analysis Settings"
+              }
+            >
+              {/* Profile Avatar with initials */}
+              <div
                 style={{
+                  width: 27,
+                  height: 27,
+                  borderRadius: "50%",
+                  background:
+                    activeTab === "settings"
+                      ? "linear-gradient(135deg, #8ef244 0%, #6cd122 100%)"
+                      : "linear-gradient(135deg, #163300 0%, #295503 100%)",
+                  color: activeTab === "settings" ? "#0E1311" : "#8ef244",
                   display: "flex",
                   alignItems: "center",
-                  gap: 7,
-                  padding: "6px 14px",
-                  background: activeTab === "settings" ? "var(--niva-deep-forest)" : "rgba(22, 51, 0, 0.06)",
-                  color: activeTab === "settings" ? "var(--niva-electric-lime)" : "var(--niva-deep-forest)",
-                  borderRadius: "var(--radius-pill)",
-                  border: activeTab === "settings" ? "2px solid var(--niva-electric-lime)" : "1.5px solid rgba(22, 51, 0, 0.2)",
-                  boxShadow: activeTab === "settings" ? "0 0 12px rgba(142, 242, 68, 0.35)" : "none",
-                  cursor: "pointer",
-                  transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                  justifyContent: "center",
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  letterSpacing: "0.03em",
+                  flexShrink: 0,
+                  position: "relative",
+                  boxShadow: activeTab === "settings" ? "0 1px 4px rgba(0,0,0,0.15)" : "none",
                 }}
-                title={language === "hi" ? "प्रोफ़ाइल और विश्लेषण सेटिंग्स खोलें" : language === "gu" ? "પ્રોફાઇલ અને સેટિંગ્સ ખોલો" : "Click to open Profile & Settings"}
               >
+                {(session.name || "U")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w[0])
+                  .join("")
+                  .toUpperCase()}
+                {/* Live Online Presence Dot */}
                 <span
                   style={{
-                    width: 8,
-                    height: 8,
+                    position: "absolute",
+                    bottom: -1,
+                    right: -1,
+                    width: 7.5,
+                    height: 7.5,
                     borderRadius: "50%",
-                    background: "var(--niva-electric-lime)",
-                    display: "inline-block",
-                    boxShadow: "0 0 6px var(--niva-electric-lime)",
+                    background: "#10b981",
+                    border: "1.5px solid #ffffff",
+                    boxShadow: "0 0 4px rgba(16, 185, 129, 0.6)",
                   }}
                 />
-                <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "-0.01em", textTransform: "uppercase" }}>
-                  {session.name}
+              </div>
+
+              {/* Customer Name and KYC Badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 650,
+                    color: activeTab === "settings" ? "#ffffff" : "var(--niva-obsidian)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    maxWidth: 145,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {formatCustomerDisplayName(session.name)}
                 </span>
-                <SettingsIcon
-                  size={14}
-                  color={activeTab === "settings" ? "var(--niva-electric-lime)" : "currentColor"}
-                  style={{ opacity: activeTab === "settings" ? 1 : 0.7 }}
-                />
-              </button>
-              <button
-                onClick={handleLogout}
-                title={t.logout}
+                
+                {/* Verified KYC Tag */}
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    padding: "1.5px 5.5px",
+                    borderRadius: 4,
+                    background:
+                      activeTab === "settings"
+                        ? "rgba(142, 242, 68, 0.2)"
+                        : "rgba(22, 51, 0, 0.08)",
+                    color: activeTab === "settings" ? "#8ef244" : "var(--niva-deep-forest)",
+                    letterSpacing: "0.02em",
+                    flexShrink: 0,
+                    lineHeight: "13px",
+                  }}
+                >
+                  KYC ✓
+                </span>
+              </div>
+
+              {/* Settings Gear Icon with smooth rotation */}
+              <SettingsIcon
+                size={13.5}
+                color={activeTab === "settings" ? "#8ef244" : "var(--niva-text-muted)"}
                 style={{
-                  background: "none", border: "none", color: "var(--niva-text-muted)",
-                  fontSize: 12, cursor: "pointer", padding: "4px 8px", textDecoration: "underline",
+                  flexShrink: 0,
+                  transition: "transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: activeTab === "settings" ? "rotate(60deg)" : "rotate(0deg)",
                 }}
-              >
-                {language === "hi" ? "लॉगआउट" : language === "gu" ? "લોગઆઉટ" : "Logout"}
-              </button>
-            </div>
+              />
+            </button>
+
+            {/* Sleek Logout Button */}
+            <button
+              onClick={handleLogout}
+              title={t.logout}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 4.5,
+                height: 35,
+                padding: "0 11px",
+                borderRadius: "var(--radius-pill)",
+                border: "1px solid rgba(225, 29, 72, 0.2)",
+                background: "rgba(225, 29, 72, 0.04)",
+                color: "var(--niva-critical)",
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "rgba(225, 29, 72, 0.1)";
+                e.currentTarget.style.borderColor = "rgba(225, 29, 72, 0.35)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "rgba(225, 29, 72, 0.04)";
+                e.currentTarget.style.borderColor = "rgba(225, 29, 72, 0.2)";
+              }}
+            >
+              <LogOutIcon size={12.5} color="currentColor" />
+              <span>{language === "hi" ? "लॉगआउट" : language === "gu" ? "લોગઆઉટ" : "Logout"}</span>
+            </button>
           </div>
         </div>
       </nav>
@@ -705,7 +873,7 @@ export default function CustomerDashboardPage() {
                   </span>
                 </div>
                 <h1 className="headline-lg" style={{ color: "#ffffff" }}>
-                  {t.welcome}, {session.name}
+                  {t.welcome}, {formatCustomerDisplayName(session.name)}
                 </h1>
                 <p className="body-md" style={{ color: "rgba(255,255,255,0.8)", marginTop: 4 }}>
                   {t.twinActive}. {language === "hi" ? "आपकी वित्तीय सुरक्षा और आपातकालीन बफर की सीधी निगरानी।" : "Real-time AI financial monitoring protecting you from debt traps."}

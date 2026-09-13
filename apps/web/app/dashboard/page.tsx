@@ -37,6 +37,7 @@ import {
   SettingsIcon,
   TrendingDownIcon,
 } from "@/components/icons";
+import FormattedCopilotOutput from "@/components/FormattedCopilotOutput";
 
 type Language = "en" | "hi" | "gu";
 type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "pots" | "afford" | "subs" | "settings";
@@ -375,22 +376,39 @@ export default function CustomerDashboardPage() {
       const res = await sendChatMessage(text, session.personaId, language);
       const reply = res.response || res.reply || "Based on your financial twin, taking an additional high-interest loan will breach your DTI limit. Instead, utilize the PM SVANidhi working capital scheme.";
       setCopilotResponse(reply);
-      speakText(reply);
+      // If previously speaking, stop it
+      stopSpeaking();
     } catch {
       const fallback = language === "hi"
         ? `आपके वित्तीय डिजिटल ट्विन के अनुसार, आपका अनिवार्य मासिक खर्च ₹${(twin?.expenses?.essential || session.essentialExpenses).toLocaleString("en-IN")} है। नया 36% ब्याज वाला असुरक्षित लोन लेने से आपका स्वास्थ्य स्कोर गिर जाएगा। हम PM SVANidhi सुरक्षित योजना का सुझाव देते हैं।`
         : `According to your Financial Digital Twin, your essential expenses are ₹${(twin?.expenses?.essential || session.essentialExpenses).toLocaleString("en-IN")}. Taking a high-interest unsecured loan will push your DTI ratio into critical danger. We recommend the pre-approved PM SVANidhi scheme instead.`;
       setCopilotResponse(fallback);
-      speakText(fallback);
+      stopSpeaking();
     } finally {
       setCopilotLoading(false);
+    }
+  }
+
+  function stopSpeaking() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
     }
   }
 
   function speakText(text: string) {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const cleanText = text
+        .replace(/###?\s*/g, "")
+        .replace(/\|/g, " ")
+        .replace(/[-*]\s+/g, "")
+        .replace(/\*\*/g, "")
+        .replace(/>\s*/g, "")
+        .replace(/---/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = language === "hi" ? "hi-IN" : language === "gu" ? "gu-IN" : "en-IN";
       utterance.rate = 0.95;
       utterance.onstart = () => setIsSpeaking(true);
@@ -2018,34 +2036,19 @@ export default function CustomerDashboardPage() {
                   </button>
                 </div>
 
-                {/* Copilot Response Card */}
+                {/* Formatted Copilot Response Card */}
                 {copilotResponse && (
-                  <div style={{
-                    marginTop: 18, padding: "18px 22px", borderRadius: "var(--radius-md)",
-                    background: "var(--niva-canvas-subtle)", border: "1px solid var(--niva-border)",
-                    animation: "fadeSlideUp 0.3s ease forwards",
-                  }}>
-                    <div className="flex-between" style={{ marginBottom: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <BrainIcon size={18} color="var(--niva-deep-forest)" />
-                        <strong style={{ fontSize: 13 }}>NIVA Financial Advice:</strong>
-                      </div>
-                      <button
-                        onClick={() => speakText(copilotResponse)}
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          display: "flex", alignItems: "center", gap: 4, fontSize: 12,
-                          color: "var(--niva-deep-forest)", fontWeight: 600,
-                        }}
-                      >
-                        <VolumeIcon size={16} color="currentColor" />
-                        {isSpeaking ? (language === "hi" ? "बोल रहा है..." : "Speaking...") : (language === "hi" ? "दोबारा सुनें" : "Replay Audio")}
-                      </button>
-                    </div>
-                    <p className="body-md" style={{ color: "var(--niva-obsidian)", lineHeight: 1.6 }}>
-                      {copilotResponse}
-                    </p>
-                  </div>
+                  <FormattedCopilotOutput
+                    content={copilotResponse}
+                    language={language}
+                    isSpeaking={isSpeaking}
+                    onSpeak={speakText}
+                    onStopSpeak={stopSpeaking}
+                    onQuickPrompt={(p) => {
+                      setCopilotInput(p);
+                      handleSendCopilot(p);
+                    }}
+                  />
                 )}
               </section>
             </div>

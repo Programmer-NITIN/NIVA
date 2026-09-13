@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { checkAffordability, sendChatMessage } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { MicIcon } from "@/components/icons";
+import FormattedCopilotOutput from "@/components/FormattedCopilotOutput";
 
 type PersonaId = "rajesh_sharma" | "anita_desai" | "vikram_patel";
 
@@ -165,16 +166,19 @@ export default function AskNivaPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="card">
-                    <div className="flex-gap-sm" style={{ marginBottom: 8 }}>
-                      <span className="navbar-brand-icon" style={{ width: 28, height: 28, fontSize: 11 }}>N</span>
-                      <span className="label-md">NIVA</span>
-                    </div>
-                    <p className="body-lg" style={{ whiteSpace: "pre-line" }}>{msg.text}</p>
-
-                    {/* Affordability Result */}
+                  <div>
+                    <FormattedCopilotOutput
+                      content={msg.text}
+                      language={language}
+                      onQuickPrompt={(p) => {
+                        setInput(p);
+                      }}
+                    />
+                    {/* Affordability Interactive Slider Card if present */}
                     {msg.data && (
-                      <AffordabilityResult data={msg.data} />
+                      <div style={{ marginTop: 12 }}>
+                        <AffordabilityResult data={msg.data} />
+                      </div>
                     )}
                   </div>
                 )}

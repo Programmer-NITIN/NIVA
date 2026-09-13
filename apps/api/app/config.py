@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     setu_product_instance_id: Optional[str] = None
 
     # LLM
-    llm_provider: str = "gemini"  # "gemini" | "groq"
+    llm_provider: str = "groq"  # "gemini" | "groq"
     gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    groq_model: str = "openai/gpt-oss-120b"
 
     # Auth
     secret_key: Optional[str] = None

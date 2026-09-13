@@ -48,15 +48,28 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create tables if not exist. For hackathon reliability, uses create_all."""
+    """Create tables if not exist. For hackathon reliability, falls back to SQLite if Postgres is unreachable."""
+    global engine, async_session
     try:
         from app.models import __all__  # noqa
     except Exception:
         pass
-    # Import all models to register with Base
     try:
         import app.models  # noqa
     except Exception:
         pass
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        if not _db_url.startswith("sqlite"):
+            print(f"[NIVA] Postgres unreachable ({e}), seamlessly initializing SQLite local database (niva.db)...")
+            sqlite_url = "sqlite+aiosqlite:///./niva.db"
+            engine = create_async_engine(sqlite_url, echo=False, future=True)
+            async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            print("[NIVA] Local SQLite database initialized successfully.")
+        else:
+            raise

@@ -571,17 +571,6 @@ export default function CustomerDashboardPage() {
                 {language === "hi" ? "NIVA साथी (Voice)" : language === "gu" ? "NIVA સાથી (Voice)" : "Ask NIVA"}
               </button>
             </li>
-            <li>
-              <button
-                id="navbar-profile-settings-tab"
-                className={activeTab === "settings" ? "active" : ""}
-                onClick={() => setActiveTab("settings")}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <SettingsIcon size={14} color="currentColor" />
-                <span>{language === "hi" ? "प्रोफ़ाइल व सेटिंग्स" : language === "gu" ? "પ્રોફાઇલ અને સેટિંગ્સ" : "Profile & Settings"}</span>
-              </button>
-            </li>
           </ul>
 
           {/* Mobile: keep navbar brand + language, desktop tabs hidden via CSS; bottom nav handles navigation */}
@@ -639,25 +628,44 @@ export default function CustomerDashboardPage() {
               <span>{refreshing ? "Analyzing..." : "Refresh"}</span>
             </button>
 
-            {/* Customer Profile Pill & Logout */}
+            {/* Customer Profile Pill (Clicking directly opens Profile & Settings) */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: "1px solid var(--niva-border)" }}>
               <button
-                onClick={() => setActiveTab("settings")}
+                id="navbar-customer-profile-btn"
+                onClick={() => setActiveTab(activeTab === "settings" ? "twin" : "settings")}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "5px 12px",
-                  background: activeTab === "settings" ? "var(--niva-deep-forest)" : "var(--niva-canvas-subtle)",
-                  color: activeTab === "settings" ? "var(--niva-electric-lime)" : "var(--niva-obsidian)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "6px 14px",
+                  background: activeTab === "settings" ? "var(--niva-deep-forest)" : "rgba(22, 51, 0, 0.06)",
+                  color: activeTab === "settings" ? "var(--niva-electric-lime)" : "var(--niva-deep-forest)",
                   borderRadius: "var(--radius-pill)",
-                  border: activeTab === "settings" ? "1px solid var(--niva-electric-lime)" : "1px solid var(--niva-border)",
+                  border: activeTab === "settings" ? "2px solid var(--niva-electric-lime)" : "1.5px solid rgba(22, 51, 0, 0.2)",
+                  boxShadow: activeTab === "settings" ? "0 0 12px rgba(142, 242, 68, 0.35)" : "none",
                   cursor: "pointer",
-                  transition: "all 0.2s ease",
+                  transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
-                title="View & update profile and analysis settings"
+                title={language === "hi" ? "प्रोफ़ाइल और विश्लेषण सेटिंग्स खोलें" : language === "gu" ? "પ્રોફાઇલ અને સેટિંગ્સ ખોલો" : "Click to open Profile & Settings"}
               >
-                <span className="status-dot positive" />
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{session.name}</span>
-                <SettingsIcon size={13} color="currentColor" style={{ opacity: 0.7 }} />
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: "var(--niva-electric-lime)",
+                    display: "inline-block",
+                    boxShadow: "0 0 6px var(--niva-electric-lime)",
+                  }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "-0.01em", textTransform: "uppercase" }}>
+                  {session.name}
+                </span>
+                <SettingsIcon
+                  size={14}
+                  color={activeTab === "settings" ? "var(--niva-electric-lime)" : "currentColor"}
+                  style={{ opacity: activeTab === "settings" ? 1 : 0.7 }}
+                />
               </button>
               <button
                 onClick={handleLogout}

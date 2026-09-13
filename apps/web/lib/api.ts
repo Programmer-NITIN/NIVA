@@ -352,6 +352,16 @@ export async function assignBankCounselor(personaId: string, counselorName = "Ka
   });
 }
 
+// ── Raksha Fraud Shield ──────────
+export async function getFraudTypes(){ return fetchAPI<any>("/fraud-types");}
+export async function reportFraud(payload:any){ return fetchAPI<any>("/report",{method:"POST",body:JSON.stringify(payload)});}
+export async function getFraudCases(personaId:string){ return fetchAPI<any>(`/cases/${personaId}`);}
+export async function getFraudCase(caseId:string){ return fetchAPI<any>(`/case/${caseId}`);}
+export async function updateFraudStatus(caseId:string, new_status:string, note=""){ return fetchAPI<any>(`/case/${caseId}/status`,{method:"POST",body:JSON.stringify({new_status, note})});}
+export async function freezeFraudPots(caseId:string){ return fetchAPI<any>(`/case/${caseId}/freeze-pots`,{method:"POST"});}
+export async function getFraudBundle(caseId:string){ return fetchAPI<any>(`/bundle/${caseId}`);}
+export async function getFraudSuspects(personaId:string){ return fetchAPI<any>(`/suspects/${personaId}`);}
+
 // ── Bank Schemes Management Endpoints ──────────
 
 export async function getBankSchemes(activeOnly = false) {

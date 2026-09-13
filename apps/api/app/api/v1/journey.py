@@ -18,6 +18,7 @@ from datetime import datetime
 from app.services.twin import FinancialTwinService, _uploaded_twins
 from app.services.gate import ResponsibleGateService
 from app.services.statement_parser import BankStatementParser
+from app.config import settings
 
 import logging
 
@@ -326,6 +327,7 @@ async def send_otp(req: SendOtpRequest):
         "message": f"OTP successfully dispatched to {clean_phone}.",
         "phone": clean_phone,
         "otp_preview": generated_otp,
+        "dev_otp": generated_otp,
         "expires_in_seconds": 600,
     }
 
@@ -399,9 +401,12 @@ async def verify_otp(req: VerifyOtpRequest):
         except Exception as e:
             logger.warning(f"[NIVA Journey] Could not check Firestore auth_sessions: {e}")
 
-    # Demo testing fallbacks (always allow 123456 or 999999 for test harnesses)
-    if not is_valid_otp and entered_otp in {"123456", "999999"}:
-        is_valid_otp = True
+    # Demo testing fallbacks (always allow 123456 or 999999 for test harnesses, or any 6-digit OTP in development)
+    if not is_valid_otp:
+        if entered_otp in {"123456", "999999"}:
+            is_valid_otp = True
+        elif settings.app_env != "production" and len(entered_otp) == 6:
+            is_valid_otp = True
 
     if not is_valid_otp:
         raise HTTPException(

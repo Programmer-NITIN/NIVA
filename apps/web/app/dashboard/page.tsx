@@ -1,6 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect } from "react";
+const RakshaPanel = dynamic(()=>import("@/components/RakshaPanel"), { ssr:false });
 import {
   getFinancialTwin,
   getRecommendations,
@@ -32,14 +34,15 @@ import {
   AlertTriangleIcon,
   FileTextIcon,
   BuildingBankIcon,
-  IdCardIcon,
-  RefreshCwIcon,
-  SettingsIcon,
   TrendingDownIcon,
+  LockIcon,
+  SettingsIcon,
+  RefreshCwIcon,
+  IdCardIcon,
 } from "@/components/icons";
 
 type Language = "en" | "hi" | "gu";
-type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "pots" | "afford" | "subs" | "settings";
+type ActiveTab = "twin" | "spending" | "whatif" | "schemes" | "copilot" | "pots" | "afford" | "subs" | "settings" | "raksha";
 
 interface CustomerSession {
   personaId: string;
@@ -551,6 +554,16 @@ export default function CustomerDashboardPage() {
             <li>
               <button className={activeTab === "copilot" ? "active" : ""} onClick={() => setActiveTab("copilot")}>
                 {language === "hi" ? "NIVA साथी (Voice)" : language === "gu" ? "NIVA સાથી (Voice)" : "Ask NIVA"}
+              </button>
+            </li>
+            <li>
+              <button
+                className={activeTab === "raksha" ? "active" : ""}
+                onClick={() => setActiveTab("raksha")}
+                style={{ display: "flex", alignItems: "center", gap: 6, color: activeTab==="raksha" ? undefined : "#B91C1C", fontWeight: 700 }}
+              >
+                <span style={{fontSize:14}}>🚨</span>
+                <span>{language === "hi" ? "रक्षा" : language === "gu" ? "રક્ષા" : "Raksha"}</span>
               </button>
             </li>
             <li>
@@ -2390,6 +2403,11 @@ export default function CustomerDashboardPage() {
             </div>
           )}
 
+          {/* ─────────── RAKSHA — CYBER FRAUD SHIELD ─────────── */}
+          {activeTab === "raksha" && (
+            <RakshaPanel personaId={session.personaId} language={language} />
+          )}
+
         </div>
       </main>
 
@@ -2424,6 +2442,7 @@ export default function CustomerDashboardPage() {
           {id:"schemes", label:"Schemes", icon: CheckCircleIcon},
           {id:"subs", label:"Subs", icon: AlertTriangleIcon},
           {id:"copilot", label:"Ask NIVA", icon: BrainIcon},
+          {id:"raksha", label:"Raksha", icon: AlertTriangleIcon},
           {id:"settings", label:"Profile", icon: SettingsIcon},
         ].map(({id,label,icon:Icon})=>(
           <button key={id} className={`bottom-nav-item ${activeTab===id?"active":""}`} onClick={()=>{ setActiveTab(id as any); window.scrollTo({top:0, behavior:"smooth"}); }} aria-current={activeTab===id?"page":undefined}>

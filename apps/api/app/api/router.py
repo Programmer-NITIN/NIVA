@@ -5,10 +5,11 @@ All v1 routes are registered here.
 
 from fastapi import APIRouter
 
-from app.api.v1 import aa, twin, recommend, copilot, bank, demo, journey, ml, auth, pots, sms, portfolio, subs, checkout, family
+from app.api.v1 import aa, twin, recommend, copilot, bank, demo, journey, ml, auth, pots, sms, portfolio, subs, checkout, family, fraud
 
 api_router = APIRouter()
 
+api_router.include_router(fraud.router, prefix="", tags=["Raksha Fraud Shield"])
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 api_router.include_router(aa.router, prefix="/aa", tags=["Account Aggregator"])
 api_router.include_router(twin.router, prefix="/twin", tags=["Financial Twin"])

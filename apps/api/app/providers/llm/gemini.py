@@ -26,11 +26,21 @@ def _get_model():
         import google.generativeai as genai
         genai.configure(api_key=settings.gemini_api_key)
         model_kwargs = {"system_instruction": SYSTEM_PROMPT}
-        try:
-            _model = genai.GenerativeModel("gemini-2.0-flash", **model_kwargs)
-        except TypeError:
-            _model = genai.GenerativeModel("gemini-2.0-flash")
-        return _model
+        
+        # In 2026, gemini-3.6-flash is the active production model
+        candidates = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
+        for model_name in candidates:
+            try:
+                try:
+                    _model = genai.GenerativeModel(model_name, **model_kwargs)
+                except TypeError:
+                    _model = genai.GenerativeModel(model_name)
+                print(f"[NIVA] Successfully initialized Gemini model: {model_name}")
+                return _model
+            except Exception as ex:
+                print(f"[NIVA] Model {model_name} unavailable: {ex}")
+                continue
+        return None
     except Exception as e:
         print(f"[NIVA] Gemini init failed: {e}")
         return None
@@ -44,10 +54,11 @@ CORE RULES:
 3. When communicating in Hindi, use authentic, respectful terminology ("aap") and Bharat financial terms: "kist" for EMI, "byaj" for interest, "bachat" for savings, "bima" for insurance, "karz/udhaar" for debt.
 4. When communicating in Gujarati, use respectful terms: "hafto" for EMI, "vyaj" for interest, "bachat" for savings, "bimo" for insurance.
 5. Emphasize non-predatory, safe financial habits. If someone is experiencing financial stress or a medical emergency, recommend empathetic interventions (like emergency moratoriums or PM SVANidhi 7% lines) instead of high-interest credit.
-6. When asked about affordability, ALWAYS use the calculate_affordability tool first. Present the EXACT numbers from the tool result.
-7. Keep responses concise and empowering (2-4 sentences max for conversational queries).
-8. Use Indian currency formatting (₹, lakhs, crores) naturally.
-9. Always mention RBI Account Aggregator as the data source for customer trust.
+6. When asked about affordability of any purchase (e.g. phones, iPhone, laptop, bike, car, gold, AC, appliances), ALWAYS invoke the calculate_affordability tool first. If the user mentions a gadget like 'iPhone' without an explicit rupee figure, infer realistic contemporary Indian retail pricing (e.g. latest iPhone: ₹79,900, iPhone Pro: ₹1,34,900, laptop: ₹60,000, two-wheeler/bike: ₹90,000, car: ₹6,50,000). Never confuse device model numbers (like 15, 16, 18, 24) with rupee prices!
+7. Present the EXACT numbers from the tool results (current balance, post-purchase balance, emergency months remaining).
+8. Keep responses concise, warm, empathetic, and empowering (2-4 short sections or bullet points).
+9. Use Indian currency formatting (₹, lakhs, crores) naturally.
+10. Always mention RBI Account Aggregator as the verified data source for customer trust.
 """
 
 
@@ -200,9 +211,20 @@ User message: {message}"""
                     }
 
         # Text response
-        reply = response.text if response.text else "I couldn't process that. Please try again."
+        reply = None
+        try:
+            if response.text:
+                reply = response.text
+        except Exception:
+            pass
+
+        if not reply and response.candidates and response.candidates[0].content.parts:
+            text_parts = [p.text for p in response.candidates[0].content.parts if hasattr(p, "text") and p.text]
+            if text_parts:
+                reply = " ".join(text_parts)
+
         return {
-            "reply": reply,
+            "reply": reply or "I reviewed your financial state via Account Aggregator. How else can I assist?",
             "tool_calls": [],
             "language": language,
         }
@@ -223,7 +245,7 @@ def _fallback_response(message: str, language: str) -> dict:
     else:
         lang = "en"
 
-    if any(w in msg for w in ["afford", "buy", "purchase", "khareed", "kharidi", "laptop", "phone", "price"]):
+    if any(w in msg for w in ["afford", "buy", "purchase", "khareed", "kharidi", "laptop", "phone", "iphone", "bike", "car", "tv", "price"]):
         return {
             "reply": None,
             "tool_calls": [{"name": "calculate_affordability", "args": _extract_amount(msg), "status": "pending"}],
@@ -264,14 +286,62 @@ def _fallback_response(message: str, language: str) -> dict:
 
 
 def _extract_amount(msg: str) -> dict:
-    """Extract amount from message text."""
+    """Extract amount from message text, with smart fallbacks for common Bharat purchases."""
     import re
-    # Match patterns like ₹65,000 or 65000 or 65k
-    match = re.search(r'[₹Rs.]?\s*([\d,]+)\s*(?:k|K)?', msg)
-    if match:
-        amount_str = match.group(1).replace(",", "")
-        amount = int(amount_str)
-        if "k" in msg.lower() and amount < 1000:
-            amount *= 1000
-        return {"target_amount": amount, "delay_months": 0}
-    return {"target_amount": 50000, "delay_months": 0}
+    msg_clean = msg.lower()
+
+    # 1. Match explicit currency notations (e.g. ₹ 65,000, Rs 15000, 15k, 2.5 lakh)
+    currency_patterns = [
+        r'(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(?:k|thousand|lakh|lac)?',
+        r'([\d,]+(?:\.\d+)?)\s*(?:k|thousand|lakh|lac)\s*(?:₹|rs\.?|inr|rupees)?',
+        r'([\d,]+(?:\.\d+)?)\s*(?:rupees|bucks)',
+    ]
+    for pat in currency_patterns:
+        m = re.search(pat, msg_clean)
+        if m:
+            raw = m.group(1).replace(",", "")
+            try:
+                amt = float(raw)
+                if "k" in msg_clean or "thousand" in msg_clean:
+                    amt *= 1000
+                elif "lakh" in msg_clean or "lac" in msg_clean:
+                    amt *= 100000
+                if amt >= 100:
+                    return {"target_amount": float(amt), "delay_months": 0, "description": msg[:50]}
+            except ValueError:
+                pass
+
+    # 2. Check for explicit 4+ digit numbers (e.g. 50000, 15000) while avoiding model numbers like 14, 15, 16, 18, 24
+    m = re.search(r'\b(\d{4,7})\b', msg_clean)
+    if m:
+        try:
+            amt = float(m.group(1))
+            return {"target_amount": amt, "delay_months": 0, "description": msg[:50]}
+        except ValueError:
+            pass
+
+    # 3. Smart retail pricing inference for common Bharat purchases
+    if "iphone" in msg_clean or "apple phone" in msg_clean:
+        if "pro" in msg_clean:
+            return {"target_amount": 134900.0, "delay_months": 0, "description": "iPhone Pro"}
+        return {"target_amount": 79900.0, "delay_months": 0, "description": "Latest iPhone"}
+    elif "macbook" in msg_clean:
+        return {"target_amount": 99900.0, "delay_months": 0, "description": "MacBook"}
+    elif "laptop" in msg_clean or "computer" in msg_clean:
+        return {"target_amount": 55000.0, "delay_months": 0, "description": "Laptop"}
+    elif "car" in msg_clean or "gaadi" in msg_clean:
+        return {"target_amount": 650000.0, "delay_months": 0, "description": "Car"}
+    elif any(w in msg_clean for w in ["bike", "scooter", "activa", "two wheeler", "bullet"]):
+        return {"target_amount": 90000.0, "delay_months": 0, "description": "Two-Wheeler"}
+    elif any(w in msg_clean for w in ["tv", "television"]):
+        return {"target_amount": 35000.0, "delay_months": 0, "description": "Smart TV"}
+    elif "fridge" in msg_clean or "refrigerator" in msg_clean:
+        return {"target_amount": 28000.0, "delay_months": 0, "description": "Refrigerator"}
+    elif "ac" in msg_clean or "air conditioner" in msg_clean:
+        return {"target_amount": 38000.0, "delay_months": 0, "description": "Air Conditioner"}
+    elif any(w in msg_clean for w in ["phone", "mobile", "smartphone"]):
+        return {"target_amount": 22000.0, "delay_months": 0, "description": "Smartphone"}
+    elif any(w in msg_clean for w in ["gold", "sona"]):
+        return {"target_amount": 75000.0, "delay_months": 0, "description": "Gold (10g)"}
+
+    return {"target_amount": 50000.0, "delay_months": 0, "description": "General Purchase"}

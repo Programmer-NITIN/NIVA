@@ -13,37 +13,42 @@ from app.config import settings
 _model = None
 
 
-def _get_model():
-    """Lazy-initialize Gemini model."""
-    global _model
-    if _model is not None:
-        return _model
+AVAILABLE_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
+]
 
+def _call_gemini_with_fallback(context: str, tools=None):
+    """Call Gemini across a resilient fallback pool to ensure zero 429 quota disruptions."""
     if not settings.gemini_api_key:
         return None
 
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        model_kwargs = {"system_instruction": SYSTEM_PROMPT}
-        
-        # In 2026, gemini-3.6-flash is the active production model
-        candidates = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
-        for model_name in candidates:
+    import google.generativeai as genai
+    genai.configure(api_key=settings.gemini_api_key)
+    model_kwargs = {"system_instruction": SYSTEM_PROMPT}
+
+    last_error = None
+    for model_name in AVAILABLE_MODELS:
+        try:
             try:
-                try:
-                    _model = genai.GenerativeModel(model_name, **model_kwargs)
-                except TypeError:
-                    _model = genai.GenerativeModel(model_name)
-                print(f"[NIVA] Successfully initialized Gemini model: {model_name}")
-                return _model
-            except Exception as ex:
-                print(f"[NIVA] Model {model_name} unavailable: {ex}")
-                continue
-        return None
-    except Exception as e:
-        print(f"[NIVA] Gemini init failed: {e}")
-        return None
+                model = genai.GenerativeModel(model_name, **model_kwargs)
+            except TypeError:
+                model = genai.GenerativeModel(model_name)
+            
+            response = model.generate_content(context, tools=tools)
+            return response
+        except Exception as e:
+            last_error = e
+            print(f"[NIVA] Model {model_name} failed: {e}. Trying next model in pool...")
+            continue
+
+    if last_error:
+        raise last_error
+    return None
 
 
 SYSTEM_PROMPT = """You are NIVA (Nuanced Intelligence Virtual Advisor), a responsible financial copilot for Indian banking customers.
@@ -137,9 +142,7 @@ async def generate_response(
     Generate a copilot response using Gemini with function calling.
     Returns: { reply: str, tool_calls: list, language: str }
     """
-    model = _get_model()
-
-    if model is None:
+    if not settings.gemini_api_key:
         # Fallback to rule-based
         return _fallback_response(message, language)
 
@@ -190,10 +193,11 @@ User message: {message}"""
         if tool_results:
             context += f"\n\nTool results (use these EXACT numbers in your response):\n{json.dumps(tool_results, indent=2, default=str)}"
 
-        response = model.generate_content(
-            context,
-            tools=[{"function_declarations": TOOL_DECLARATIONS}] if not tool_results else None,
-        )
+        tools_param = [{"function_declarations": TOOL_DECLARATIONS}] if not tool_results else None
+        response = _call_gemini_with_fallback(context, tools=tools_param)
+
+        if not response:
+            return _fallback_response(message, language)
 
         # Check for function calls
         if response.candidates and response.candidates[0].content.parts:

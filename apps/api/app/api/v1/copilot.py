@@ -162,12 +162,13 @@ def _format_tool_result(tool_name: str, data: dict, language: str) -> str:
         post = data.get("post_purchase_balance", 0)
         buffer = data.get("post_purchase_emergency_months", 0)
         reasoning = data.get("reasoning", "")
+        desc = data.get("description") or "this item"
 
         if language == "gu":
-            return f"Tamaro current balance ₹{balance:,.0f} chhe. ₹{amt:,.0f} ni kharidi pachhi ₹{post:,.0f} bachshe ane {buffer} months no emergency buffer raheshe. {reasoning}"
+            return f"Tamaro current balance ₹{balance:,.0f} chhe. ₹{amt:,.0f} ni kharidi ({desc}) pachhi ₹{post:,.0f} bachshe ane {buffer:.1f} months no emergency runway raheshe. {reasoning}"
         elif language == "hi":
-            return f"Aapka current balance ₹{balance:,.0f} hai. ₹{amt:,.0f} ki purchase ke baad ₹{post:,.0f} bachega aur {buffer} months ka emergency buffer rahega. {reasoning}"
-        return reasoning
+            return f"Aapka current verified balance ₹{balance:,.0f} hai. ₹{amt:,.0f} ki kharid ({desc}) ke baad ₹{post:,.0f} bachega aur {buffer:.1f} mahine ka emergency buffer rahega. {reasoning}"
+        return f"Based on your verified RBI Account Aggregator balance of ₹{balance:,.0f}, purchasing {desc} (estimated at ₹{amt:,.0f}) leaves your balance at ₹{post:,.0f} with {buffer:.1f} months of emergency runway. {reasoning}"
 
     elif tool_name == "get_spending_breakdown":
         total = data.get("total_expenses", 0)
